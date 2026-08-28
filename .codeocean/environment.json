@@ -20,13 +20,25 @@
 					"name": "aind-data-access-api"
 				},
 				{
+					"name": "caveclient"
+				},
+				{
+					"name": "cloud-volume"
+				},
+				{
 					"name": "hdmf-zarr"
 				},
 				{
 					"name": "matplotlib"
 				},
 				{
+					"name": "nglui"
+				},
+				{
 					"name": "numpy"
+				},
+				{
+					"name": "ossify"
 				},
 				{
 					"name": "pandas"
@@ -36,6 +48,12 @@
 				},
 				{
 					"name": "scipy"
+				},
+				{
+					"name": "seaborn"
+				},
+				{
+					"name": "standard-transform"
 				}
 			],
 			"options": {},
