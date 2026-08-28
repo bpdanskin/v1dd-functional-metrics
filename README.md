@@ -1,3 +1,3 @@
-# aind-capsule-template
+# swdb-capsule-template
 
-Basic structure of a capsule to be customized as needed.
+SWDB 2026 capsule template
