@@ -1,3 +1,4 @@
+- [Project status](project-status.md) — where the refactor stands, how it is verified, and the ordered list of what remains. **Read first.**
 - [Repo identity and the frozen fork](repo-identity-and-the-frozen-fork.md) — what this replaces, and where the reference asset and prior notes live.
 - [The user handles commits](user-handles-commits.md) — leave work uncommitted; they inspect the diff first.
 - [code/ is /code in the capsule](capsule-code-directory-constraint.md) — why the package is code/src, and no sys.path surgery.
@@ -9,3 +10,5 @@
 - [Von Mises fit conditioning](vonmises-fit-conditioning.md) — why the tuning fit is expensive (k unbounded inside an exponential), three refuted hypotheses, and what to try.
 - [Test suite shape](test-suite-shape.md) — why some ported files are one test, the two shapes that must both be clean, and what was dropped.
 - [The RF threshold is a knife edge](rf-threshold-is-a-knife-edge.md) — 0.25 is exactly 11/44, so 17% of ROIs have a pixel on the boundary and their centres are unstable.
+- [Two anomalous sessions](two-anomalous-sessions.md) — col4/vol1 and col2/vol5 account for nearly every exception; provenance to chase upstream.
+- [The column layout is one-dimensional](column-layout-is-one-dimensional.md) — column 1 is the centre, but the apertures constrain azimuth only; two anatomical frames ship side by side.

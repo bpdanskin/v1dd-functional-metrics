@@ -33,6 +33,8 @@ __all__ = [
     "spontaneous_block",
     "load_running_speed",
     "load_lsn_template",
+    "RoiMasks",
+    "load_roi_masks",
     "STIMULUS_TABLE_COLUMNS",
     "DG_PARAM_COLUMNS",
 ]
@@ -506,3 +508,90 @@ def _grid_degrees(n_cols: int, n_rows: int, grid: float) -> Tuple[np.ndarray, np
     azimuths = (np.arange(n_cols) - n_cols // 2 + 0.5) * grid
     altitudes = (np.arange(n_rows) - n_rows // 2 + 0.5) * grid
     return azimuths, altitudes
+
+
+@dataclass
+class RoiMasks:
+    """One plane's ROI footprints, flattened to pixel coordinates.
+
+    ``row``/``col`` hold every in-mask pixel for every ROI concatenated, and ``offsets``
+    slices them per ROI, so a reduction over all ROIs is one pass. ``shape`` is the field
+    of view in pixels where the file says, else None; ``source`` names the column the
+    coordinates came from.
+    """
+
+    row: np.ndarray                   # (n_pixels,) pixel row, i.e. y
+    col: np.ndarray                   # (n_pixels,) pixel column, i.e. x
+    offsets: np.ndarray               # (n_rois + 1,) slice bounds into row/col
+    source: str                       # "pixel_mask" or "image_mask"
+    shape: Optional[Tuple[int, int]] = None
+    weights_all_one: bool = True
+
+    @property
+    def n_rois(self) -> int:
+        return len(self.offsets) - 1
+
+
+def _plane_segmentation(nwbfile, plane):
+    """The PlaneSegmentation for one plane."""
+    key = f"plane-{int(plane)}" if not isinstance(plane, str) else plane
+    seg = nwbfile.processing[key]["image_segmentation"]
+    names = list(getattr(seg, "plane_segmentations", {}) or {})
+    return seg[names[0]] if names else list(seg.children)[0]
+
+
+def load_roi_masks(nwbfile, plane) -> RoiMasks:
+    """One plane's ROI footprints, from whichever mask column the file carries.
+
+    ``pixel_mask`` is a ragged list of ``(x, y, weight)`` per ROI; ``image_mask`` is a
+    dense per-ROI boolean image. Both reduce to the same pixel coordinates, so nothing
+    downstream needs to know which was stored -- see docs/families/roi_position.md.
+
+    Read per ROI rather than whole-column: a dense mask is (n_rois, 512, 512), which is
+    far larger than the footprints it describes.
+    """
+    ps = _plane_segmentation(nwbfile, plane)
+    colnames = list(getattr(ps, "colnames", []))
+    n_rois = len(ps.id)
+    rows, cols, counts = [], [], []
+    weights_one = True
+
+    if "pixel_mask" in colnames:
+        source, shape = "pixel_mask", None
+        column = ps["pixel_mask"]
+        for i in range(n_rois):
+            entry = np.asarray(column[i])
+            if entry.dtype.names:                      # named fields: x, y, weight
+                x, y = entry["x"], entry["y"]
+                if "weight" in entry.dtype.names and not np.allclose(entry["weight"], 1.0):
+                    weights_one = False
+            else:                                      # unstructured (n, 3) as (x, y, w)
+                flat = entry.reshape(len(entry), -1)
+                x, y = flat[:, 0], flat[:, 1]
+                if flat.shape[1] > 2 and not np.allclose(flat[:, 2], 1.0):
+                    weights_one = False
+            cols.append(np.asarray(x, dtype=np.int32))
+            rows.append(np.asarray(y, dtype=np.int32))
+            counts.append(len(x))
+
+    elif "image_mask" in colnames:
+        source = "image_mask"
+        column = ps["image_mask"]
+        data = getattr(column, "data", column)
+        shape = tuple(int(v) for v in np.shape(data)[1:3]) or None
+        for i in range(n_rois):
+            yx = np.argwhere(np.asarray(data[i]) > 0)
+            rows.append(yx[:, 0].astype(np.int32))
+            cols.append(yx[:, 1].astype(np.int32))
+            counts.append(len(yx))
+
+    else:
+        raise KeyError(
+            f"plane {plane} has no ROI mask column; available: {sorted(colnames)}"
+        )
+
+    offsets = np.concatenate([[0], np.cumsum(counts)]).astype(np.int64)
+    return RoiMasks(
+        row=np.concatenate(rows) if rows else np.zeros(0, np.int32),
+        col=np.concatenate(cols) if cols else np.zeros(0, np.int32),
+        offsets=offsets, source=source, shape=shape, weights_all_one=weights_one)

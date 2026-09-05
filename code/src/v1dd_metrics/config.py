@@ -156,6 +156,16 @@ class MetricConfig:
     #: `differs_from_reference_config`.
     impute_dgw_center: bool = True
 
+    # --- ROI position
+    #: Micrometres per imaging pixel. **Not recorded anywhere in the NWB** --
+    #: ``grid_spacing`` is a [1.0, 1.0] 'meters' placeholder on every plane -- and not
+    #: stated in the white paper either. Inferred: four columns tile an 800 um grid, so
+    #: one field of view is ~400 um across 512 pixels. The paper also says the columns
+    #: *overlap*, which makes 400 an upper bound, so treat this as the least trustworthy
+    #: number in the asset. Comparing the two anatomical frames is unaffected by it:
+    #: both are scaled by the same factor. Set to None to leave every um column NaN.
+    um_per_pixel: Optional[float] = 800.0 / 2 / 512
+
     #: Start the von Mises fit from a guess derived from the curve itself rather than
     #: from the fixed ``p0``. Expected to be faster; measured, it needs **2.1x the model
     #: evaluations** (1617 against 771 per curve) for a fit of equal quality. The cost is

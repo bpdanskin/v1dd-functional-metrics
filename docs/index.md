@@ -7,6 +7,7 @@
 
 ## Families
 
+- [Roi Position](families/roi_position.md)
 - [Roi Quality](families/roi_quality.md)
 - [Drifting Gratings](families/drifting_gratings.md)
 - [Surround Suppression](families/surround_suppression.md)

@@ -50,6 +50,14 @@ OUTPUT_COLUMNS["drifting_gratings_windowed"] = OUTPUT_COLUMNS["drifting_gratings
 OUTPUT_COLUMNS["natural_images_12"] = OUTPUT_COLUMNS["natural_images"]
 OUTPUT_COLUMNS["natural_movie"] = OUTPUT_COLUMNS["natural_images"]
 
+OUTPUT_COLUMNS["roi_position"] = [
+    "roi_unique_id", "mouse", "column", "volume", "plane", "roi", "depth_um",
+    "pika_roi_confidence",
+    "roi_x_px", "roi_y_px", "roi_area_px", "roi_radius_px",
+    "roi_x_um", "roi_y_um",
+    "roi_x_um_published", "roi_y_um_published",
+    "roi_x_um_retinotopic", "roi_y_um_retinotopic"]
+
 
 def roi_frame(plane, mouse: Optional[str] = None) -> pd.DataFrame:
     """The identity columns every output table starts with.

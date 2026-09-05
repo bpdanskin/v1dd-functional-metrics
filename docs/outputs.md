@@ -23,7 +23,7 @@ that read one reads a column subset of `stimulus_metrics.parquet` instead.
 
 ## The per-ROI table
 
-Nine identity columns, then 72 metrics — 81 in total. Families whose published names
+Nine identity columns, then the metric blocks below. Families whose published names
 already name the stimulus keep an empty prefix.
 
 | family | prefix | n | columns |
@@ -36,6 +36,7 @@ already name the stimulus keep an empty prefix.
 | `natural_images_12` | `ni12_` | 7 | the same seven |
 | `natural_movie` | `nm_` | 7 | the same seven, with `pref_img` a frame index |
 | `rf_metrics` | — | 7 | `has_rf_on`, `has_rf_off`, `has_rf_on_or_off`, `azimuth_rf_on`, `altitude_rf_on`, `azimuth_rf_off`, `altitude_rf_off` |
+| `roi_position` | — | 10 | `roi_x_px`, `roi_y_px`, `roi_area_px`, `roi_radius_px`, `roi_x_um`, `roi_y_um`, and the two anatomical frames `roi_{x,y}_um_published` / `roi_{x,y}_um_retinotopic` — see [roi_position.md](families/roi_position.md) |
 
 Identity: `roi_unique_id`, `roi_key`, `mouse`, `column`, `volume`, `plane`, `roi`,
 `depth_um`, `pika_roi_confidence`.

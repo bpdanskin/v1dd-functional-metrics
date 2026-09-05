@@ -25,19 +25,21 @@ from .families import drifting_gratings as dgm
 from .families import natural_images as nim
 from .families import natural_movie as nmm
 from .families import receptive_fields as rfm
+from .families import roi_position as rpm
 from .families import roi_quality as rqm
 from .families import surround_suppression as ssm
 from .schema import to_output_schema
 
 FAMILIES = ["roi_summary", "drifting_gratings_full", "drifting_gratings_windowed",
             "surround_suppression", "natural_images", "natural_images_12",
-            "natural_movie", "rf_metrics"]
+            "natural_movie", "rf_metrics", "roi_position"]
 
 #: Column prefix each family contributes to the wide table. Families whose published
 #: names already carry the stimulus keep an empty prefix.
 PREFIX = {"drifting_gratings_full": "dgf_", "drifting_gratings_windowed": "dgw_",
           "surround_suppression": "", "roi_summary": "", "natural_images": "ni_",
-          "natural_images_12": "ni12_", "natural_movie": "nm_", "rf_metrics": ""}
+          "natural_images_12": "ni12_", "natural_movie": "nm_", "rf_metrics": "",
+          "roi_position": ""}
 
 ID_COLS = ["roi_unique_id", "roi_key", "mouse", "column", "volume", "plane", "roi",
            "depth_um", "pika_roi_confidence"]
@@ -181,8 +183,29 @@ def process_plane(plane, ctx: dict, acc: Accumulator, config: MetricConfig,
                           "dt": round(plane.dt, 6)})
 
 
+def column_layout(centers, config: MetricConfig) -> dict:
+    """Two candidate placements of the imaging columns, from the aperture retinotopy.
+
+    ``published`` snaps to the white paper's nominal 800 um grid; ``retinotopic`` is the
+    measured layout scaled into micrometres without snapping. Both are reconstructions --
+    the NWB records no usable geometry -- so both are shipped and neither is preferred.
+    """
+    per_column = {}
+    for col, info in (centers.provenance.get("columns") or {}).items():
+        az, el = info.get("median_azimuth"), info.get("median_elevation")
+        if az is not None and el is not None:
+            per_column[int(col)] = (float(az), float(el))
+
+    fit = rpm.assign_columns(per_column)
+    published = rpm.published_offsets(fit["assignment"]) if fit.get("um_per_degree") else {}
+    retinotopic = rpm.retinotopic_offsets(
+        per_column, fit.get("centre_column"), fit.get("um_per_degree"))         if fit.get("um_per_degree") else {}
+    return {"aperture_by_column": per_column, "fit": fit,
+            "published_offsets": published, "retinotopic_offsets": retinotopic}
+
+
 def process_session(row: pd.Series, centers, acc: Accumulator, config: MetricConfig,
-                    seed: int) -> None:
+                    seed: int, layout: Optional[dict] = None) -> None:
     """Open one session and run every plane in it. Raises; the caller records failures."""
     nwbfile, io = vn.open_session(row["path"])
     try:
@@ -202,6 +225,9 @@ def process_session(row: pd.Series, centers, acc: Accumulator, config: MetricCon
             "lsn": vn.load_lsn_template(nwbfile),
             "center": centers.centers[key],
             "center_inferred": centers.inferred[key],
+            "published_offsets": (layout or {}).get("published_offsets") or {},
+            "retinotopic_offsets": (layout or {}).get("retinotopic_offsets") or {},
+            "masks": None,
         }
         if acc.lsn_grid is None:
             acc.lsn_grid = {
@@ -210,6 +236,11 @@ def process_session(row: pd.Series, centers, acc: Accumulator, config: MetricCon
 
         for plane_key in vn.list_planes(nwbfile):
             plane = vn.load_plane(nwbfile, plane_key, trace_types=("events", "dff"))
+            try:
+                ctx["masks"] = vn.load_roi_masks(nwbfile, plane_key)
+            except KeyError as exc:          # no mask column -> position columns NaN
+                print(f"    !! {plane_key}: {exc}", flush=True)
+                ctx["masks"] = None
             process_plane(plane, ctx, acc, config, seed)
             del plane
     finally:
@@ -406,7 +437,8 @@ def build_provenance(*, asset_name: str, stamp: str, mouse_label: str, config: M
                      planes: pd.DataFrame, wide: pd.DataFrame, wall_seconds: float,
                      session_filter, failures: list, write_errors: list,
                      window_centers: dict, center_read_failures: list,
-                     wide_name: str, manifest: dict, arrays: list) -> dict:
+                     wide_name: str, manifest: dict, arrays: list,
+                     layout: Optional[dict] = None) -> dict:
     """The asset's own provenance record.
 
     Built separately from writing it so its contents can be checked without a run --
@@ -433,6 +465,8 @@ def build_provenance(*, asset_name: str, stamp: str, mouse_label: str, config: M
         "config": defaults,
         "window_centers": {**window_centers,
                            "read_failures": center_read_failures},
+        # Two reconstructions of the column layout, neither recorded in the file.
+        "column_layout": layout or {},
         # The delta rather than prose, so the claim stays checkable.
         "differs_from_reference_config": {
             k: {"used": defaults[k], "historical": reference[k]}
@@ -476,11 +510,17 @@ def run(input_asset: Path, results_dir: Path, asset_prefix: str = "V1DD_function
     print(f"aperture centres: {wc['n_measured']} measured, {wc['n_inferred']} inferred, "
           f"{wc['n_unfilled']} unknown", flush=True)
 
+    layout = column_layout(centers, config)
+    fit = layout["fit"]
+    print(f"column layout: centre={fit.get('centre_column')} "
+          f"um/deg={fit.get('um_per_degree')} residual={fit.get('residual_um')}",
+          flush=True)
+
     acc = Accumulator()
     for n, (_, row) in enumerate(sessions.iterrows(), 1):
         t_sess = time.time()
         try:
-            process_session(row, centers, acc, config, seed)
+            process_session(row, centers, acc, config, seed, layout)
             print(f"  [{n:>2}/{len(sessions)}] col{row['column']} vol{row['volume']} "
                   f"{row['name'][:34]:<34} {time.time() - t_sess:>6.1f}s", flush=True)
         except Exception as exc:                                        # noqa: BLE001
@@ -524,7 +564,8 @@ def run(input_asset: Path, results_dir: Path, asset_prefix: str = "V1DD_function
         session_filter=session_filter, failures=acc.failures,
         write_errors=write_errors, window_centers=wc,
         center_read_failures=center_read_failures,
-        wide_name=wide_path.name, manifest=manifest, arrays=arrays)
+        wide_name=wide_path.name, manifest=manifest, arrays=arrays,
+        layout=layout)
     with open(save_dir / "provenance.json", "w", encoding="utf-8") as fh:
         json.dump(prov.jsonable(record), fh, indent=2, sort_keys=True, allow_nan=False)
         fh.write("\n")
