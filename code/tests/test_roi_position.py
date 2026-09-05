@@ -155,3 +155,76 @@ def test_no_pixel_scale_means_no_micrometres():
     check("and so are both anatomical frames",
           frame["roi_x_um_published"].isna().all()
           and frame["roi_x_um_retinotopic"].isna().all())
+
+
+class _FakeVectorData:
+    def __init__(self, data):
+        self.data = data
+
+
+class _FakeVectorIndex:
+    """A ragged column shaped like pynwb's, so both read paths can be exercised."""
+
+    def __init__(self, flat, ends, break_fast_path=False):
+        self.target = _FakeVectorData(flat)
+        self.data = [-1] if break_fast_path else ends     # invalid ends -> fallback
+        self._flat, self._ends = flat, ends
+        self.per_roi_reads = 0
+
+    def __getitem__(self, i):
+        self.per_roi_reads += 1
+        start = 0 if i == 0 else self._ends[i - 1]
+        return self._flat[start:self._ends[i]]
+
+
+class _FakePlaneSegmentation:
+    def __init__(self, column, n_rois):
+        self._column, self.id = column, list(range(n_rois))
+        self.colnames = ["pixel_mask"]
+
+    def __getitem__(self, key):
+        return self._column
+
+
+def _ragged(footprints):
+    import numpy as _np
+    dt = _np.dtype([("x", "<u4"), ("y", "<u4"), ("weight", "<f4")])
+    flat = _np.zeros(sum(len(f[0]) for f in footprints), dtype=dt)
+    ends, at = [], 0
+    for r, c in footprints:
+        flat["y"][at:at + len(r)] = r
+        flat["x"][at:at + len(c)] = c
+        flat["weight"][at:at + len(r)] = 1.0
+        at += len(r)
+        ends.append(at)
+    return flat, ends
+
+
+def test_the_bulk_and_per_roi_read_paths_agree(monkeypatch):
+    """Reading the ragged column whole must match reading it per ROI.
+
+    The bulk path exists because per-ROI reads cost ~45 % of a session's wall time. It
+    falls back automatically when the flat form does not check out, so both must give the
+    same footprints.
+    """
+    from v1dd_metrics import nwb as vn
+    foot = [square(10, 20, 4), square(100, 300, 6), square(7, 7, 3)]
+    flat, ends = _ragged(foot)
+
+    fast = _FakeVectorIndex(flat, ends)
+    slow = _FakeVectorIndex(flat, ends, break_fast_path=True)
+    for col, label in ((fast, "bulk"), (slow, "per-ROI")):
+        monkeypatch.setattr(vn, "_plane_segmentation",
+                            lambda *a, _c=col, **k: _FakePlaneSegmentation(_c, len(foot)))
+        masks = vn.load_roi_masks(None, 0)
+        got = rpm.centroids(masks)
+        check(f"{label}: three ROIs", masks.n_rois == 3, str(masks.n_rois))
+        check(f"{label}: first centroid", got["roi_x_px"][0] == pytest.approx(21.5))
+        check(f"{label}: areas", list(got["roi_area_px"]) == [16.0, 36.0, 9.0],
+              str(got["roi_area_px"]))
+        check(f"{label}: weights seen as all one", masks.weights_all_one)
+
+    check("the bulk path made no per-ROI reads", fast.per_roi_reads == 0,
+          str(fast.per_roi_reads))
+    check("the fallback did read per ROI", slow.per_roi_reads == len(foot),
+          str(slow.per_roi_reads))

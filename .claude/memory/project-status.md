@@ -68,12 +68,64 @@ this project's most reliable source of defects -- it also dropped `@dataclass` d
 and three `OUTPUT_COLUMNS` alias lines during the P2 split. **Assert on every replacement,
 or use an editor that fails loudly.**
 
+## The second capsule run, 2026-09-05 -- the pipeline completed
+
+`code/run --session 1:3` on `68255af`. **All eight outputs landed**: the parquet, all
+three npz archives, `provenance.json` and the three AIND sidecars. `failed_sessions` and
+`failed_outputs` both empty, `complete_asset` correctly **false** (a session filter was
+set), eight entries in `differs_from_reference_config`.
+
+**`roi_position` works on real data.** 2,708 ROIs x 95 columns; centroids **100 % inside
+0-511**, no NaNs, median area 177 px and median radius 7.5 px -- about **11.7 um
+diameter** at the inferred pixel scale, which is a plausible soma. The two anatomical
+frames are correctly all-NaN, because one column cannot constrain a layout;
+`column_layout.fit` records the reason verbatim: *"need 5 columns with a centre, have 1"*.
+
+### Two tests failed in the capsule and passed locally -- again
+
+`tests.json` reported 68 passed, **2 failed**: `test_a_stamped_version_file_is_read` and
+`test_it_refuses_in_a_git_less_copy_with_no_version`. **Both were test defects, not code
+defects** -- the pipeline behaved correctly in each case:
+
+* The entry point exports `V1DD_CODE_VERSION` before launching validation and passes the
+  environment down, so in a capsule the first test ran with it already set. The env var
+  correctly wins over the file, so the test was reading the environment, not the file.
+* The second copies `code/` and expects a refusal, but a capsule may have a **stamped**
+  `code/CODE_VERSION` -- which correctly supplies a version.
+
+Both now control their own environment (`monkeypatch.delenv`, and blanking the copied
+`CODE_VERSION`). Simulating both conditions locally then exposed two *more* tests making
+the same assumption, which are fixed the same way: a blank `V1DD_CODE_VERSION` is now
+asserted to mean *unset* rather than *malformed*, and the "ships comment-only" check skips
+where the file has been stamped, because that is a deployment state rather than a defect.
+
+**The suite is now verified in five shapes** -- clean checkout; env var set; file stamped;
+both; and a `.git`-less copy. 70 tests, one skipping where it cannot apply.
+
+This is the third recurrence of the class recorded in [[test-suite-shape]]. The lesson
+holds and needs stating more strongly: **a test that reads process state must set that
+state itself.**
+
+### Runtime regressed, and it was my design choice
+
+1306.7 s for one session against 900.6 s before `roi_position` existed -- +45 %, which
+extrapolates to **~9.1 h** for 25 sessions against the fork's 5.1 h.
+
+Cause: `load_roi_masks` read `pixel_mask` **per ROI**, about 450 store accesses per plane.
+The justification for per-ROI reads -- that a dense mask is (n_rois, 512, 512) -- applies
+only to `image_mask`. The ragged column is small enough to read whole.
+
+Fixed: the flat array and its cumulative index are read once and sliced in memory, with
+the per-ROI path kept as an automatic fallback whenever the flat form does not check out
+(length, monotonicity, and ROI count are all verified first). A unit test drives both
+paths through a fake ragged column and asserts they agree. **The speedup itself is
+unverified against a real NWB** -- confirm on the next capsule run.
+
 ## What remains, in the order it should happen
 
-1. **Re-run the one-session smoke test**, now that the `roi_position` call exists. The
-   first attempt (above) died before the wide table, so nothing downstream of it has ever
-   run: the three array writers, provenance, the AIND sidecars, and the validation and
-   metadata stages of `run_pipeline.py` are all still unexercised.
+1. **Re-run one session** to confirm the two fixes above: that the suite is clean in the
+   capsule, and that reading the ragged mask column whole brings the session back toward
+   ~15 min. Everything else in the pipeline is now known to work end to end.
 
    ```bash
    code/run --session 1:3          # ~12 min against ~5 h for the full asset

@@ -30,7 +30,19 @@ def test_an_explicit_version_is_used_verbatim():
     check("the environment value wins", "abc1234" in out.stdout, out.stdout + out.stderr)
 
 
-@pytest.mark.parametrize("bad", ["= 17cacea", "not-a-sha", "abc", "zzzzzzz", " "])
+def test_a_blank_version_is_treated_as_unset_not_as_malformed(tmp_path, monkeypatch):
+    """Whitespace means "nobody set this", so the ladder continues to the next rung.
+
+    Distinct from a malformed value, which stops the run: an empty string carries no
+    claim about which commit built the asset, whereas `"= <sha>"` carries a false one.
+    """
+    monkeypatch.setenv("V1DD_CODE_VERSION", "   ")
+    (tmp_path / "CODE_VERSION").write_text("feedface\n", encoding="utf-8")
+    from v1dd_metrics.version import code_version
+    check("falls through to the file", code_version(tmp_path, strict=True) == "feedface")
+
+
+@pytest.mark.parametrize("bad", ["= 17cacea", "not-a-sha", "abc", "zzzzzzz"])
 def test_a_value_that_is_not_a_commit_is_refused(bad):
     """Being set is not the same as being usable.
 
@@ -44,13 +56,28 @@ def test_a_value_that_is_not_a_commit_is_refused(bad):
 
 
 def test_the_shipped_version_file_asserts_nothing():
-    """`code/CODE_VERSION` ships comment-only, so it can never claim a stale commit."""
+    """`code/CODE_VERSION` ships comment-only, so it can never claim a stale commit.
+
+    Skipped where it has been stamped: writing the commit into it before a capture run is
+    exactly what the file is for, so a stamped file is a deployment state rather than a
+    defect. This is a claim about what the repository ships, not about any runtime.
+    """
     from v1dd_metrics.version import read_version_file
-    check("no version is asserted until someone stamps it",
-          read_version_file(REPO / "code" / "CODE_VERSION") == "")
+    stamped = read_version_file(REPO / "code" / "CODE_VERSION")
+    if stamped:
+        pytest.skip(f"CODE_VERSION has been stamped ({stamped[:12]}) -- "
+                    "a deployment state, not something to assert against")
+    check("no version is asserted until someone stamps it", stamped == "")
 
 
-def test_a_stamped_version_file_is_read(tmp_path):
+def test_a_stamped_version_file_is_read(tmp_path, monkeypatch):
+    """The file is only consulted when the environment does not answer first.
+
+    The environment must be cleared explicitly: the entry point exports
+    ``V1DD_CODE_VERSION`` before launching validation, so in a capsule this test runs with
+    it already set and would otherwise be reading the environment, not the file.
+    """
+    monkeypatch.delenv("V1DD_CODE_VERSION", raising=False)
     (tmp_path / "CODE_VERSION").write_text("# a comment\n\nfeedface\n", encoding="utf-8")
     from v1dd_metrics.version import code_version
     check("first non-comment line is the version",
@@ -66,7 +93,15 @@ def test_it_refuses_in_a_git_less_copy_with_no_version(tmp_path):
     code = tmp_path / "code"
     shutil.copytree(REPO / "code", code,
                     ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    # Control the fixture rather than inherit it. `code/CODE_VERSION` ships comment-only,
+    # but a capsule stamps it before a run -- and a copy carrying a stamped version is not
+    # the situation under test.
+    (code / "CODE_VERSION").write_text(
+        "# blanked by the test: this copy must have no version\n", encoding="utf-8")
     check("the copy really has no .git above it", not (tmp_path / ".git").exists())
+    check("and no version stamped into it",
+          not [ln for ln in (code / "CODE_VERSION").read_text(encoding="utf-8").splitlines()
+               if ln.strip() and not ln.startswith("#")])
 
     out = run_entry({}, cwd=tmp_path, entry=code / "run_pipeline.py", src=code / "src")
     check("refuses rather than shipping a null version", out.returncode != 0,

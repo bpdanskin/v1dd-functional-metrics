@@ -559,16 +559,38 @@ def load_roi_masks(nwbfile, plane) -> RoiMasks:
     if "pixel_mask" in colnames:
         source, shape = "pixel_mask", None
         column = ps["pixel_mask"]
-        for i in range(n_rois):
-            entry = np.asarray(column[i])
+
+        # The ragged column is small, so read it whole and slice in memory. Reading it
+        # per ROI is one store access per ROI -- about 450 per plane -- and cost ~45 %
+        # of a session's wall time. The per-ROI path below is kept as a fallback and is
+        # taken whenever the flat form does not check out.
+        flat = ends = None
+        try:
+            flat = np.asarray(column.target.data[:])
+            ends = np.asarray(column.data[:], dtype=np.int64)
+            ok = (len(ends) == n_rois and len(flat) == (ends[-1] if len(ends) else 0)
+                  and bool(np.all(np.diff(ends) >= 0)))
+            if not ok:
+                flat = ends = None
+        except Exception:                                           # noqa: BLE001
+            flat = ends = None
+
+        if flat is not None:
+            starts = np.concatenate([[0], ends[:-1]])
+            entries = [flat[a:b] for a, b in zip(starts, ends)]
+        else:
+            entries = (np.asarray(column[i]) for i in range(n_rois))
+
+        for entry in entries:
+            entry = np.asarray(entry)
             if entry.dtype.names:                      # named fields: x, y, weight
                 x, y = entry["x"], entry["y"]
                 if "weight" in entry.dtype.names and not np.allclose(entry["weight"], 1.0):
                     weights_one = False
             else:                                      # unstructured (n, 3) as (x, y, w)
-                flat = entry.reshape(len(entry), -1)
-                x, y = flat[:, 0], flat[:, 1]
-                if flat.shape[1] > 2 and not np.allclose(flat[:, 2], 1.0):
+                arr = entry.reshape(len(entry), -1)
+                x, y = arr[:, 0], arr[:, 1]
+                if arr.shape[1] > 2 and not np.allclose(arr[:, 2], 1.0):
                     weights_one = False
             cols.append(np.asarray(x, dtype=np.int32))
             rows.append(np.asarray(y, dtype=np.int32))
