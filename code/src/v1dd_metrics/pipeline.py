@@ -177,6 +177,13 @@ def process_plane(plane, ctx: dict, acc: Accumulator, config: MetricConfig,
     acc.parts["natural_movie"].append(nmm.natural_movie_metrics(
         plane, ctx["nm_trials"], ctx["spont"], config=config, rng=rng()))
 
+    # Anatomical position. The masks are read in process_session rather than by
+    # load_plane, which drops them: eight of nine output blocks do not want a dense
+    # per-ROI footprint.
+    acc.parts["roi_position"].append(rpm.roi_position_metrics(
+        plane, ctx["masks"], config=config, mouse=None,
+        published=ctx["published_offsets"], retinotopic=ctx["retinotopic_offsets"]))
+
     acc.plane_log.append({"session": ctx["session_name"], "column": plane.column,
                           "volume": plane.volume, "plane": plane.plane,
                           "n_rois": plane.n_rois, "depth_um": plane.depth_um,
@@ -245,6 +252,22 @@ def process_session(row: pd.Series, centers, acc: Accumulator, config: MetricCon
             del plane
     finally:
         io.close()
+
+
+def check_families_ran(tables: dict[str, pd.DataFrame]) -> None:
+    """Every family in ``FAMILIES`` must have produced rows.
+
+    A family that never appended leaves no key at all, because ``Accumulator.tables``
+    drops empty ones -- and the next thing to touch it is ``build_wide``, which raises a
+    bare ``KeyError`` naming the family but not the reason. Checked here so a family that
+    silently did not run says so, after hours of work rather than during them.
+    """
+    missing = [f for f in FAMILIES if f not in tables]
+    if missing:
+        raise RuntimeError(
+            f"no rows were produced for {missing}. Every family must run for every "
+            f"plane; produced: {sorted(tables)}"
+        )
 
 
 def check_roi_coverage(tables: dict[str, pd.DataFrame]) -> int:
@@ -535,6 +558,7 @@ def run(input_asset: Path, results_dir: Path, asset_prefix: str = "V1DD_function
     if not tables:
         raise RuntimeError("no session produced any metrics")
     planes = pd.DataFrame(acc.plane_log)
+    check_families_ran(tables)
     n_rois = check_roi_coverage(tables)
     print(f"\n{len(planes)} planes, {n_rois} ROIs, {wall_seconds / 60:.1f} min",
           flush=True)

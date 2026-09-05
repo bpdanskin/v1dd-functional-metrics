@@ -71,14 +71,40 @@ at 512x512 is small enough to question.
 5. Is the 38-pixel median mask in col 4 / vol 1 plane 0 the same quantity as the 196-pixel
    median elsewhere, or a different mask definition?
 
-## One record-keeping discrepancy, unresolved
+## Corrected 2026-09-05: the `_filtered_` suffix was never lost
 
-The reference run's own `provenance.json` (2026-09-03) lists all 25 sessions **with**
-`_filtered_<date>` suffixes and all 25 as `zarr`. The currently mounted asset has **bare**
-names (`409828_2018-11-21_09-22-23.nwb.zarr`). So by the reference run the HDF5-to-Zarr
-conversion had already happened, but the suffix was still present *then* and is absent
-*now* -- meaning the mount has been re-published since, or the two changes were not
-simultaneous. Worth confirming before treating the current mount as the asset the
-reference numbers came from: **the ROI sets may not match the 39,407 of the reference.**
+An earlier note here claimed the mount had been re-published because session names had
+lost their `_filtered_` suffix. **That was wrong, and the mistake is worth keeping.** Two
+different names were being compared:
+
+* `find_sessions()` returns the **NWB store** inside each session directory, which has
+  always been bare: `409828_2018-11-06_14-02-59.nwb.zarr`.
+* `data_description.json` carries the **session directory** name, which does have the
+  suffix: `409828_2018-11-06_14-02-59_filtered_2026-04-09_04-59-00`.
+
+`code/run --check-env` reports 25/25 names carrying `_filtered_`, so nothing was
+re-published and the reference run's 39,407 ROIs remain the right target. **Read identity
+off the sidecar, not off a path.**
+
+## A third off-schedule date, and a fourth anomaly for col 2 / vol 5
+
+Sidecar `creation_time` dates across the mounted asset:
+
+| date | sessions |
+|---|---|
+| 2026-04-09 | 22 |
+| 2026-04-16 | **2** |
+| **2018-12-07** | **1** |
+
+Two things to chase here. The 2026-04-16 group is **two** sessions, where the directory
+names had suggested only col 4 / vol 1 was off-schedule. And one sidecar carries a
+*2018* creation time -- an acquisition date, not a build date, so that session's
+`data_description.json` was written with the wrong field or inherited it verbatim.
+
+`409828_2018-12-07_15-05-38` is col 2 / vol 5, one of the two sessions above, and its
+acquisition date matches that stray 2018-12-07 exactly. **That is an inference from the
+date matching the session name, not something confirmed** -- the probe did not record
+which session owns which sidecar date. Confirm it before treating it as a fifth
+consequence of the same upstream difference, but it is the obvious first thing to check.
 
 Related: [[metric-cautions]], [[repo-identity-and-the-frozen-fork]].

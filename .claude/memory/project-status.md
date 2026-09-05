@@ -35,11 +35,45 @@ Not replayable: responsiveness and `roi_quality` (need the continuous trace), na
 movie (no per-trial array ships). Natural images is **partly** replayable from
 `condition_means` and has not been done.
 
+## The first capsule run, 2026-09-05
+
+`code/run --session 1:3` on `f9ca782`. It did what a smoke run is for: **it found a bug
+that all 67 tests missed.**
+
+* Session discovery, the aperture pre-pass, the six per-plane family calls and the ROI
+  count all worked. **2,708 ROIs across 6 planes -- exactly the reference value**, so the
+  mounted asset matches what the replay gate compares against.
+* **900.6 s for one session**, so a 25-session run is ~6.2 h against the fork's 5.1 h. The
+  extra is mask reading plus `roi_position`. Budget for it before P6.
+* `column layout: centre=None` is **correct** for a single-column run -- `assign_columns`
+  needs five columns and declines rather than inventing one. It will populate on a full run.
+* It then died in `build_wide` with `KeyError: 'roi_position'`.
+
+**The bug.** `roi_position` was added to `FAMILIES`, to `OUTPUT_COLUMNS`, to `PREFIX` and
+to the mask loading -- but the one line that actually *calls* the family in `process_plane`
+was never applied. A `str.replace` in a batch edit silently did not match, and pyflakes
+could not see it because `rpm` is genuinely used elsewhere in the module. So masks were
+read for every plane and thrown away, and `Accumulator.tables()` -- which drops families
+with no rows -- left no key for `build_wide` to find.
+
+Fixed, plus three guards that would have caught it in seconds:
+
+* `check_families_ran()` runs before `build_wide` and names the family that produced
+  nothing, instead of a bare `KeyError` after 15 minutes.
+* a test that `process_plane`'s source appends to every family in `FAMILIES`.
+* a test that `FAMILIES`, `OUTPUT_COLUMNS` and `PREFIX` agree.
+
+**The lesson, which has now bitten three times:** a silent `str.replace` in a batch edit is
+this project's most reliable source of defects -- it also dropped `@dataclass` decorators
+and three `OUTPUT_COLUMNS` alias lines during the P2 split. **Assert on every replacement,
+or use an editor that fails loudly.**
+
 ## What remains, in the order it should happen
 
-1. **Run the pipeline end to end, once, on one session.** `pipeline.run()` has never
-   executed -- only its helpers are unit-tested, and the four-stage wiring in
-   `run_pipeline.py` (processing, validation, metadata) has never run together either.
+1. **Re-run the one-session smoke test**, now that the `roi_position` call exists. The
+   first attempt (above) died before the wide table, so nothing downstream of it has ever
+   run: the three array writers, provenance, the AIND sidecars, and the validation and
+   metadata stages of `run_pipeline.py` are all still unexercised.
 
    ```bash
    code/run --session 1:3          # ~12 min against ~5 h for the full asset

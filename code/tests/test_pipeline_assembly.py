@@ -111,3 +111,40 @@ def test_reference_config_divergence_is_reported():
         "fit_all_sf", "impute_dgw_center", "ssi_tuning_fit_includes_baseline",
         "lifetime_sparseness_over", "zero_denominator_nan",
     }, f"unexpected divergence set: {sorted(differs)}"
+
+
+def test_a_family_that_never_ran_is_named(tables):
+    """The failure the first capsule run hit, turned into a readable one.
+
+    `roi_position` was wired into FAMILIES and the schema but its call was missing from
+    the per-plane loop. Accumulator.tables() drops empty families, so build_wide raised a
+    bare KeyError after 15 minutes of work -- naming the family but not the reason.
+    """
+    del tables["roi_position"]
+    with pytest.raises(RuntimeError, match="no rows were produced"):
+        pl.check_families_ran(tables)
+    with pytest.raises(RuntimeError, match="roi_position"):
+        pl.check_families_ran(tables)
+
+
+def test_every_family_has_a_schema_and_a_prefix():
+    """FAMILIES, OUTPUT_COLUMNS and PREFIX must agree, or the wide table cannot be built."""
+    for fam in pl.FAMILIES:
+        check_in = fam in OUTPUT_COLUMNS
+        assert check_in, f"{fam} has no OUTPUT_COLUMNS entry"
+        assert fam in pl.PREFIX, f"{fam} has no PREFIX entry"
+
+
+def test_process_plane_appends_to_every_family():
+    """Static guard: each family must be appended somewhere in the per-plane loop.
+
+    Cheap, and it is the check that was missing -- the wiring was in FAMILIES, in the
+    schema and in PREFIX, so everything except an actual run looked complete.
+    """
+    import inspect
+    src = inspect.getsource(pl.process_plane)
+    for fam in pl.FAMILIES:
+        if fam in ("natural_images", "natural_images_12"):
+            continue                      # appended through a loop variable
+        assert f'"{fam}"' in src, f"process_plane never appends {fam}"
+    assert 'acc.parts[fam].append' in src, "the natural-image loop should still be here"
