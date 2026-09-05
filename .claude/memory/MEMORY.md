@@ -1,0 +1,11 @@
+- [Repo identity and the frozen fork](repo-identity-and-the-frozen-fork.md) — what this replaces, and where the reference asset and prior notes live.
+- [The user handles commits](user-handles-commits.md) — leave work uncommitted; they inspect the diff first.
+- [code/ is /code in the capsule](capsule-code-directory-constraint.md) — why the package is code/src, and no sys.path surgery.
+- [The code-version stamp ladder](code-version-stamp-ladder.md) — why the pipeline refuses to start without one, and the malformed value that shipped.
+- [Array replay validates offline](array-replay-validates-offline.md) — the shipped arrays let rewritten metric code be checked with no capsule; three exact relationships.
+- [Fresh-start metric changes](fresh-start-metric-changes.md) — four corrections the fork could not make, two deferred columns, and the evidence for each.
+- [Metric cautions](metric-cautions.md) — sparseness scaling, RF area, the 67 % low-confidence session, aperture geometry, the colliding ROI id.
+- [Correlations are a separate pipeline](correlations-are-a-separate-pipeline.md) — decided 2026-09-03, for shape and size reasons.
+- [Von Mises fit conditioning](vonmises-fit-conditioning.md) — why the tuning fit is expensive (k unbounded inside an exponential), three refuted hypotheses, and what to try.
+- [Test suite shape](test-suite-shape.md) — why some ported files are one test, the two shapes that must both be clean, and what was dropped.
+- [The RF threshold is a knife edge](rf-threshold-is-a-knife-edge.md) — 0.25 is exactly 11/44, so 17% of ROIs have a pixel on the boundary and their centres are unstable.

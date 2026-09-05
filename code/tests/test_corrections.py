@@ -1,0 +1,201 @@
+"""The three corrections applied in P3, and their exact relationship to the old behaviour.
+
+Each is provable on synthetic data, which matters: it means "the correction is right" does
+not depend on a capsule run, and the capsule run only has to confirm the size of the
+change on real data.
+
+* **Receptive-field scale.** Corrected centres are the historical ones times exactly
+  `n/(n-1)`. A constant factor is a much stronger claim than "the numbers moved a bit".
+* **Preferred condition.** Only ROIs with no finite response anywhere change, and they
+  change from a fabricated condition 0 to NaN.
+* **Natural-images window.** Two imaging samples per trial at *every* sampling rate,
+  where the 0.33 s window only manages that at the one rate it was tuned on.
+"""
+
+from support import check
+from v1dd_metrics import responses as tr
+from v1dd_metrics import nwb as vn
+from v1dd_metrics.config import DEFAULT_CONFIG, MetricConfig, REFERENCE_CONFIG
+from v1dd_metrics.families.drifting_gratings import drifting_gratings_metrics
+from v1dd_metrics.families.receptive_fields import _rf_pixel_to_degrees
+
+
+def test_corrections():
+    import numpy as np
+    import pandas as pd
+
+
+    print("[0] the defaults moved, and REFERENCE_CONFIG holds the old set")
+    d, r = DEFAULT_CONFIG, REFERENCE_CONFIG
+    check("default rf_center_scale_bug is off", d.rf_center_scale_bug is False)
+    check("default pref_cond_fillna is off", d.pref_cond_fillna is False)
+    check("default natural-images window is 2 frames", d.ni_response_frames == 2)
+    check("reference keeps the scale bug", r.rf_center_scale_bug is True)
+    check("reference keeps the fillna", r.pref_cond_fillna is True)
+    check("reference uses the 0.33 s window", r.ni_response_frames is None
+          and r.ni_response_seconds == 0.33)
+    import dataclasses
+    differing = {f.name for f in dataclasses.fields(MetricConfig)
+                 if getattr(d, f.name) != getattr(r, f.name)}
+    check("reference fits every spatial frequency, as the original did",
+          r.fit_all_sf is True and d.fit_all_sf is False)
+    check("reference imputes no aperture centre, as the original did",
+          r.impute_dgw_center is False and d.impute_dgw_center is True)
+    # Five, not four, since 2026-09-03. Three kinds of difference live in this set and the
+    # distinction is worth keeping straight when reading a provenance file:
+    #   corrections   rf_center_scale_bug, pref_cond_fillna, ni_response_frames -- the
+    #                 original was wrong, these change published numbers.
+    #   additions     impute_dgw_center -- the original computed nothing here, so there is no
+    #                 defect to correct; it fills dgw_center_* for 2,456 ROIs that were NaN,
+    #                 and the four dgw_rf_* columns derived from them. No `ssi` column moves.
+    #   performance   fit_all_sf -- changes no published column, but leaves half of the
+    #                 exported tuning_curves `*_params` NaN, so it belongs here once those
+    #                 arrays ship.
+    check("exactly eight settings differ", differing == {
+        "rf_center_scale_bug", "pref_cond_fillna", "ni_response_frames",
+        "fit_all_sf", "impute_dgw_center", "ssi_tuning_fit_includes_baseline",
+        "lifetime_sparseness_over", "zero_denominator_nan"}, str(sorted(differing)))
+
+    print("\n[1] receptive-field centres: corrected == historical * n/(n-1), exactly")
+    alt = (np.arange(8) - 4 + 0.5) * 9.3
+    azi = (np.arange(14) - 7 + 0.5) * 9.3
+    for name, centers, n in (("altitude", alt, 8), ("azimuth", azi, 14)):
+        idx = np.array([0.0, 1.0, 3.5, float(n - 1)])
+        bug = _rf_pixel_to_degrees(idx, centers, True)
+        fixed = _rf_pixel_to_degrees(idx, centers, False)
+        # Stated as a product, not a ratio: at the centre of the screen both values are
+        # exactly 0, so the ratio there is 0/0 while the relation itself still holds.
+        check(f"{name}: corrected == historical * n/(n-1) at every pixel",
+              np.allclose(fixed, bug * (n / (n - 1)), rtol=0, atol=1e-12),
+              f"max |diff| {np.max(np.abs(fixed - bug * n / (n - 1))):.2e}")
+    check("corrected altitude spans the true +/-32.55 deg",
+          abs(_rf_pixel_to_degrees(7, alt, False) - 32.55) < 1e-9)
+    check("corrected azimuth spans the true +/-60.45 deg",
+          abs(_rf_pixel_to_degrees(13, azi, False) - 60.45) < 1e-9)
+    check("historical altitude was compressed to 28.481",
+          abs(_rf_pixel_to_degrees(7, alt, True) - 28.4812) < 1e-3)
+    # The clean factor is not a coincidence: it holds because the pixel grid is centred on
+    # zero (c[0] == -range/2). On an off-centre grid the two mappings would differ by an
+    # affine transform, and the validation assertion below would need an intercept term.
+    check("the pure-scale relation depends on the grid being centred",
+          abs(alt[0] + (alt[-1] - alt[0]) / 2) < 1e-12
+          and abs(azi[0] + (azi[-1] - azi[0]) / 2) < 1e-12)
+    off = alt + 100.0
+    check("shifting the grid off centre breaks the pure ratio, as expected",
+          not np.allclose(_rf_pixel_to_degrees(np.arange(8.0), off, False),
+                          _rf_pixel_to_degrees(np.arange(8.0), off, True) * (8 / 7)))
+
+    print("\n[2] preferred condition: only no-response ROIs change, and they change to NaN")
+    # Three ROIs: one with a clear preference, one flat, one with no finite response at all.
+    N_DIR, N_SF, N_TRIALS, N_ROIS = 12, 2, 8, 3
+    mean_tr = np.zeros((N_ROIS, N_DIR, N_SF))
+    mean_tr[0] = 0.1
+    mean_tr[0, 7, 1] = 5.0                     # ROI 0 prefers direction index 7, sf index 1
+    mean_tr[1] = 0.2                           # ROI 1 is flat -> index 0 either way
+    mean_tr[2] = np.nan                        # ROI 2 has no finite response anywhere
+
+    k_fill = np.nan_to_num(mean_tr, nan=-1.0).reshape(N_ROIS, -1).argmax(axis=1)
+    k_skip = np.where(np.isfinite(mean_tr), mean_tr, -np.inf).reshape(N_ROIS, -1).argmax(axis=1)
+    check("both definitions agree on the ROI with a real preference",
+          k_fill[0] == k_skip[0] == 7 * N_SF + 1, f"{k_fill[0]} {k_skip[0]}")
+    check("both fabricate index 0 for the all-NaN ROI -- which is the actual defect",
+          k_fill[2] == 0 and k_skip[2] == 0,
+          "switching definition alone would not have fixed anything")
+    no_response = ~np.isfinite(mean_tr).any(axis=(1, 2))
+    check("the all-NaN ROI is the one that gets marked -1", list(no_response) == [False, False, True])
+
+    print("\n[2b] ...and the flag is actually wired into drifting_gratings_metrics")
+    # This is the check that matters. The ingredients above were already right when the flag
+    # was dead code, so testing them proves nothing about whether it is connected. On the two
+    # coregistered sessions the correction changes zero ROIs -- every condition has all 8
+    # trials, so no mean is ever NaN -- which means real data cannot distinguish "wired" from
+    # "still dead". Only a fixture with a genuinely unresponsive ROI can.
+    DIRS, SFS = np.arange(0, 360, 30).astype(float), np.array([0.04, 0.08])
+    DT, PERIOD, N_R = 0.16504, 3.0, 3
+    rng = np.random.default_rng(0)
+    combos = [(d, s) for d in range(12) for s in range(2)] * 8
+    rng.shuffle(combos)
+    rows, t = [], 50.0
+    for d, s in combos:
+        rows.append({"stim_name": "dg", "start_time": t, "stop_time": t + 1.985,
+                     "direction": DIRS[d], "spatial_frequency": SFS[s],
+                     "temporal_frequency": 1.0})
+        t += PERIOD
+    dg_trials = pd.DataFrame(rows)
+    dg_blank = np.zeros(len(dg_trials), bool)
+    sp0, sp1 = t + 10.0, t + 310.0
+    ts = np.arange(0.0, sp1 + 20.0, DT)
+    traces = np.zeros((len(ts), N_R))
+    for _, r in dg_trials.iterrows():
+        w = (ts >= r["start_time"]) & (ts <= r["start_time"] + 2.0)
+        traces[w, 0] = 1.0 + np.cos(np.deg2rad(r["direction"]))     # tuned
+        traces[w, 1] = 0.5                                          # flat but present
+    traces[ts >= sp0] = rng.gamma(1.0, 0.1, size=(int((ts >= sp0).sum()), N_R))
+    traces[:, 2] = np.nan          # ROI 2: no finite response anywhere, ever
+
+    roi_table = pd.DataFrame({"column": 1, "volume": 3, "plane": 0,
+                              "roi": np.arange(N_R), "pika_roi_confidence": 0.9})
+    dg_plane = vn.PlaneData(mouse_id="409828", depth_um=150.0, column=1, volume="3", plane=0,
+                            roi=np.arange(N_R), is_valid=np.ones(N_R, bool), timestamps=ts,
+                            traces={"events": traces}, roi_table=roi_table, dt=DT)
+    rts = np.arange(0.0, sp1 + 20.0, 1 / 60)
+    running = (np.zeros_like(rts), rts)
+
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        got = {}
+        for label, conf in (("corrected", MetricConfig(fit_tuning_curves=False, dg_n_boot=200)),
+                            ("historical", MetricConfig(fit_tuning_curves=False, dg_n_boot=200,
+                                                           pref_cond_fillna=True))):
+            got[label] = drifting_gratings_metrics(
+                dg_plane, dg_trials, dg_blank, (sp0, sp1), running,
+                dg_type="windowed", config=conf, rng=np.random.default_rng(0)).metrics
+
+    check("historical: the unresponsive ROI reports direction 0, invented from nothing",
+          got["historical"]["preferred_dir"].iloc[2] == DIRS[0],
+          str(got["historical"]["preferred_dir"].iloc[2]))
+    check("corrected: the unresponsive ROI reports NaN",
+          bool(np.isnan(got["corrected"]["preferred_dir"].iloc[2])),
+          str(got["corrected"]["preferred_dir"].iloc[2]))
+    check("corrected: its preferred_sf is NaN too",
+          bool(np.isnan(got["corrected"]["preferred_sf"].iloc[2])))
+    check("responsive ROIs are untouched by the flag",
+          got["corrected"]["preferred_dir"].iloc[:2].equals(
+              got["historical"]["preferred_dir"].iloc[:2]),
+          f"{got['corrected']['preferred_dir'].iloc[:2].tolist()}")
+
+    print("\n[3] natural-images window: two samples at every sampling rate")
+    # The three dt values that matter, from the pre-flight: the extremes of the asset and the
+    # one the 0.33 s window was recovered on.
+    for dt, label in ((0.16123, "asset minimum"), (0.16504, "the tuned session"),
+                      (0.16671, "asset maximum")):
+        ts = np.arange(0.0, 400.0, dt)
+        # Onsets deliberately spread across the sampling phase.
+        starts = 5.0 + np.arange(200) * 1.7 + np.linspace(0, dt, 200, endpoint=False)
+
+        a = np.searchsorted(ts, starts + 0.0, side="left")
+        b = np.searchsorted(ts, starts + 0.33, side="right")
+        counts_time = b - a
+
+        counts_frames = np.full(len(starts), 2)     # what sweep_responses_frames takes
+        uniq = sorted(set(counts_time.tolist()))
+        ok = uniq == [2]
+        check(f"dt={dt} ({label}): 0.33 s window sample count {uniq}", ok
+              if label == "the tuned session" else not ok,
+              "constant" if ok else f"varies -> per-trial rescaling")
+        check(f"dt={dt}: a 2-frame window is always 2 samples",
+              set(counts_frames.tolist()) == {2})
+
+    print("\n[4] the frame-based window is what sweep_responses_frames actually does")
+    dt = 0.16123
+    ts = np.arange(0.0, 100.0, dt)
+    traces = np.tile(np.arange(len(ts), dtype=float)[:, None], (1, 2))
+    starts = 5.0 + np.arange(30) * 2.0 + np.linspace(0, dt, 30, endpoint=False)
+    got = tr.sweep_responses_frames(traces, ts, starts, n_frames=2)
+    first = np.searchsorted(ts, starts, side="left")
+    expected = 0.5 * (traces[first, 0] + traces[first + 1, 0])
+    check("each sweep is the mean of exactly the first two samples after onset",
+          np.allclose(got[:, 0], expected, rtol=0, atol=1e-12),
+          f"max diff {np.max(np.abs(got[:, 0] - expected)):.2e}")
+    check("no NaN from a ragged window", np.isfinite(got).all())

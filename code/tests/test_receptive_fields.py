@@ -1,0 +1,294 @@
+"""receptive_field_metrics against synthetic locally-sparse-noise data."""
+
+from support import check
+from v1dd_metrics import responses as tr
+from v1dd_metrics import nwb as vn
+from v1dd_metrics.config import MetricConfig
+from v1dd_metrics.families.receptive_fields import _rf_pixel_to_degrees, receptive_field_metrics
+from v1dd_metrics.families.surround_suppression import CONTAINMENT_COLUMNS, _window_coverage, window_containment
+from v1dd_metrics.schema import OUTPUT_COLUMNS, to_output_schema
+
+
+def test_receptive_fields():
+
+    import sys
+
+    import numpy as np
+    import pandas as pd
+
+
+    RNG = np.random.default_rng(19)
+    DT = 0.16504
+    ROWS, COLS, GRID = 8, 14, 9.3
+    # Sized to the real asset (1705 LSN sweeps). This matters: the 0.25 significance
+    # threshold is applied per pixel, so with few presentations per pixel a 5%-by-chance
+    # rate produces false receptive fields. At 240 sweeps that is ~4.4 false pixels per ROI;
+    # at 1600 it is 1e-10. Period spaced so the (-1,0)s baseline and (0,4*dt) response never
+    # overlap between sweeps.
+    N_FRAMES, PERIOD = 1600, 1.8
+    N_ROIS = 4
+    TARGET_R, TARGET_C = 3, 5
+
+    # --- template: -1 (dark) / 0 (gray) / +1 (bright), as this asset encodes it
+    images = np.zeros((N_FRAMES, ROWS, COLS), dtype=np.int8)
+    for f in range(N_FRAMES):
+        on = RNG.choice(ROWS * COLS, 6, replace=False)
+        off = RNG.choice(np.setdiff1d(np.arange(ROWS * COLS), on), 6, replace=False)
+        images[f].flat[on] = 1
+        images[f].flat[off] = -1
+    # guarantee the target pixel is bright on a decent number of frames
+    # The target must be bright on only a SMALL fraction of frames. The method counts, per
+    # pixel, how often its presentations coincided with a significant response -- so if the
+    # driving pixel is bright on a third of all frames, every *other* pixel also coincides a
+    # third of the time and clears the 0.25 threshold. That is why the stimulus is called
+    # locally SPARSE noise: sparsity is what keeps non-RF pixels below threshold.
+    # 5%, not 10%. A non-RF pixel's coincidence rate is (drive rate) + (5% chance from the
+    # 95th-percentile threshold), and it must sit well below 0.25 or spurious pixels join the
+    # centroid. At a 10% drive rate that margin is 2.9 sigma (~0.2 spurious pixels per ROI,
+    # which is enough to move the centre); at 5% it is 4.8 sigma.
+    bright_frames = np.arange(0, N_FRAMES, 20)
+    images[bright_frames, TARGET_R, TARGET_C] = 1
+    dark_only = np.setdiff1d(np.arange(N_FRAMES), bright_frames)
+    images[dark_only, TARGET_R, TARGET_C] = np.where(
+        images[dark_only, TARGET_R, TARGET_C] == 1, 0, images[dark_only, TARGET_R, TARGET_C])
+
+    azimuths = (np.arange(COLS) - COLS // 2 + 0.5) * GRID
+    altitudes = (np.arange(ROWS) - ROWS // 2 + 0.5) * GRID
+    lsn = {"images": images, "azimuths": azimuths, "altitudes": altitudes,
+           "pixel_on": 1, "pixel_off": -1, "pixel_gray": 0, "pixel_values": [-1, 0, 1]}
+
+    starts = 30.0 + np.arange(N_FRAMES) * PERIOD
+    trials = pd.DataFrame({"stim_name": "locally_sparse_noise", "start_time": starts,
+                           "stop_time": starts + 0.30, "frame": np.arange(N_FRAMES).astype(float)})
+
+    spont_start = starts[-1] + 5.0
+    spont_stop = spont_start + 300.0
+    ts = np.arange(0.0, spont_stop + 20.0, DT)
+    traces = RNG.normal(0.0, 0.02, size=(len(ts), N_ROIS))     # dF/F-like, zero-mean
+
+    # ROI 0 responds whenever the target pixel is bright; ROI 1 is silent; ROI 2 responds to
+    # everything (should light up broadly); ROI 3 silent.
+    for f, s in enumerate(starts):
+        w = (ts >= s) & (ts <= s + 4 * DT)
+        if images[f, TARGET_R, TARGET_C] == 1:
+            traces[w, 0] += 2.0
+        traces[w, 2] += 2.0
+
+    roi_table = pd.DataFrame({"column": 1, "volume": 3, "plane": 0,
+                              "roi": np.arange(N_ROIS), "pika_roi_confidence": 0.9})
+    plane = vn.PlaneData(mouse_id="409828", depth_um=150.0, column=1, volume="3", plane=0, roi=np.arange(N_ROIS),
+                         is_valid=np.ones(N_ROIS, bool), timestamps=ts,
+                         traces={"dff": traces}, roi_table=roi_table, dt=DT)
+
+    cfg = MetricConfig(other_n_boot=2000)
+
+    print("[1] receptive_field_metrics")
+    out, rf_map = receptive_field_metrics(plane, trials, (spont_start, spont_stop), lsn,
+                                             config=cfg, rng=np.random.default_rng(0))
+    check("one row per ROI", len(out) == N_ROIS)
+    check("has the published columns",
+          {"has_rf_on", "has_rf_off", "has_rf_on_or_off", "azimuth_rf_on", "altitude_rf_on",
+           "azimuth_rf_off", "altitude_rf_off"} <= set(out.columns))
+    check("pixel-selective ROI has an ON receptive field", bool(out.has_rf_on[0]),
+          str(out.has_rf_on[0]))
+    check("silent ROIs have none",
+          not out.has_rf_on[1] and not out.has_rf_off[1] and not out.has_rf_on_or_off[1])
+    check("has_rf_on_or_off is the OR", bool(out.has_rf_on_or_off[0]))
+    check("no-RF ROIs get NaN centres", bool(np.isnan(out.azimuth_rf_on[1])))
+
+    print("\n[2] the centre lands on the driving pixel")
+    # The default mapping is now the corrected one -- interpolation into the real pixel
+    # centres -- so the driving pixel's centre is exactly `altitudes[TARGET_R]`.
+    check("altitude matches the target pixel",
+          abs(out.altitude_rf_on[0] - altitudes[TARGET_R]) < 1e-9,
+          f"{out.altitude_rf_on[0]:.4f} vs {altitudes[TARGET_R]:.4f}")
+    check("azimuth matches the target pixel",
+          abs(out.azimuth_rf_on[0] - azimuths[TARGET_C]) < 1e-9,
+          f"{out.azimuth_rf_on[0]:.4f} vs {azimuths[TARGET_C]:.4f}")
+
+    # ...and the historical config still lands where the old tables put it.
+    hist, _ = receptive_field_metrics(
+        plane, trials, (spont_start, spont_stop), lsn,
+        config=MetricConfig(other_n_boot=2000, rf_center_scale_bug=True),
+        rng=np.random.default_rng(0))
+    exp_alt = (TARGET_R + 0.5) * ((altitudes[-1] - altitudes[0]) / ROWS) + altitudes[0]
+    exp_azi = (TARGET_C + 0.5) * ((azimuths[-1] - azimuths[0]) / COLS) + azimuths[0]
+    check("historical config reproduces the compressed centre",
+          abs(hist.altitude_rf_on[0] - exp_alt) < 1e-9
+          and abs(hist.azimuth_rf_on[0] - exp_azi) < 1e-9,
+          f"{hist.altitude_rf_on[0]:.4f} vs {exp_alt:.4f}")
+    check("corrected == historical * n/(n-1), on real metric output not just the helper",
+          abs(out.altitude_rf_on[0] - hist.altitude_rf_on[0] * (ROWS / (ROWS - 1))) < 1e-9
+          and abs(out.azimuth_rf_on[0] - hist.azimuth_rf_on[0] * (COLS / (COLS - 1))) < 1e-9)
+
+    print("\n[3] the point_to_alt_azi scale bug, reproduced on purpose")
+    # a centroid on the LAST pixel is the sharpest test: the published tables span
+    # +/-28.481 altitude and +/-56.132 azimuth, not the true +/-32.55 and +/-60.45
+    last_alt_bug = _rf_pixel_to_degrees(ROWS - 1, altitudes, True)
+    last_azi_bug = _rf_pixel_to_degrees(COLS - 1, azimuths, True)
+    check("buggy altitude at the last row is 28.481 (published range)",
+          abs(last_alt_bug - 28.4812) < 1e-3, f"{last_alt_bug:.4f}")
+    check("buggy azimuth at the last column is 56.132 (published range)",
+          abs(last_azi_bug - 56.1321) < 1e-3, f"{last_azi_bug:.4f}")
+    check("corrected altitude is the true 32.55",
+          abs(_rf_pixel_to_degrees(ROWS - 1, altitudes, False) - 32.55) < 1e-9)
+    check("corrected azimuth is the true 60.45",
+          abs(_rf_pixel_to_degrees(COLS - 1, azimuths, False) - 60.45) < 1e-9)
+    check("the ratio is exactly (n-1)/n",
+          abs(last_alt_bug / 32.55 - 7 / 8) < 1e-9 and abs(last_azi_bug / 60.45 - 13 / 14) < 1e-9,
+          f"alt {last_alt_bug / 32.55:.6f} (7/8), azi {last_azi_bug / 60.45:.6f} (13/14)")
+    check("the flag changes the centres but not which ROIs have an RF",
+          np.array_equal(out.has_rf_on.to_numpy(), hist.has_rf_on.to_numpy())
+          and abs(out.altitude_rf_on[0] - hist.altitude_rf_on[0]) > 1e-6,
+          f"corrected {out.altitude_rf_on[0]:.4f} vs historical {hist.altitude_rf_on[0]:.4f}")
+
+    print("\n[4] the pixel encoding, which is where a literal port breaks")
+    wrong = dict(lsn, pixel_on=255, pixel_off=0)      # the original's hard-coded constants
+    wrong_out, _ = receptive_field_metrics(plane, trials, (spont_start, spont_stop), wrong,
+                                               config=cfg, rng=np.random.default_rng(0))
+    # 255 matches nothing here, so every ON field silently disappears
+    check("hard-coded pixel_on=255 erases every ON receptive field",
+          not wrong_out.has_rf_on.any(),
+          f"{int(wrong_out.has_rf_on.sum())} ON fields (correct run: {int(out.has_rf_on.sum())})")
+    # and pixel_off=0 collides with GRAY, so the OFF map stops meaning "dark pixel" and
+    # starts meaning "background pixel" -- answering a different question over ~16x as many
+    # presentations. Check the design matrix directly rather than a downstream count.
+    flat = images.reshape(N_FRAMES, -1)
+    true_off = int((flat == -1).sum())
+    gray_as_off = int((flat == 0).sum())
+    check("pixel_off=0 selects background instead of dark, over ~16x more presentations",
+          gray_as_off > 10 * true_off,
+          f"{gray_as_off} gray vs {true_off} genuinely dark")
+    check("so a literal port returns plausible-looking nonsense rather than an error",
+          len(wrong_out) == N_ROIS and not wrong_out.isna().all().all())
+    missing = dict(lsn, pixel_on=None)
+    try:
+        receptive_field_metrics(plane, trials, (spont_start, spont_stop), missing,
+                                   config=cfg, rng=np.random.default_rng(0))
+        check("raises when the codes cannot be determined", False)
+    except ValueError as e:
+        check("raises when the codes cannot be determined", "pixel codes" in str(e))
+
+    print("\n[5] rf_map shape and dtype")
+    check("rf_map shape is (n_rois, 2, rows, cols)",
+          rf_map.shape == (N_ROIS, 2, ROWS, COLS), str(rf_map.shape))
+    check("rf_map dtype is float32", rf_map.dtype == np.float32, str(rf_map.dtype))
+    check("rf_map values are in [0, 1]",
+          float(rf_map.min()) >= 0.0 and float(rf_map.max()) <= 1.0,
+          f"min={rf_map.min():.4f} max={rf_map.max():.4f}")
+    check("rf_map for selective ROI is non-zero at the target pixel",
+          rf_map[0, 0, TARGET_R, TARGET_C] > 0,
+          f"{rf_map[0, 0, TARGET_R, TARGET_C]:.4f}")
+    check("empty rf_map returned when trials are absent",
+          receptive_field_metrics(
+              plane, trials.iloc[:0], (spont_start, spont_stop), lsn, config=cfg)[1].shape
+          == (N_ROIS, 2, ROWS, COLS))
+
+    print("\n[6] guardrails and schema")
+    bad = trials.copy()
+    bad.loc[0, "frame"] = 9999.0
+    try:
+        receptive_field_metrics(plane, bad, (spont_start, spont_stop), lsn, config=cfg,
+                                   rng=np.random.default_rng(0))
+        check("raises on a frame index past the template", False)
+    except ValueError as e:
+        check("raises on a frame index past the template", "exceeds" in str(e))
+
+    pub = to_output_schema(out, "rf_metrics")
+    check("column order matches published",
+          list(pub.columns) == list(OUTPUT_COLUMNS["rf_metrics"]))
+    check("has_rf_* written as bool", all(pub[c].dtype == bool for c in
+                                          ("has_rf_on", "has_rf_off", "has_rf_on_or_off")))
+
+    print("\n[7] window containment: RF vs the grating aperture")
+    # Geometry only -- no traces, no bootstrap. Every expected value below is analytic.
+    RADIUS = 15.0
+    cfg_c = MetricConfig(dgw_window_radius_deg=RADIUS)
+    alt_c = (np.arange(ROWS) - (ROWS - 1) / 2) * GRID
+    azi_c = (np.arange(COLS) - (COLS - 1) / 2) * GRID
+    lsn_c = {"altitudes": alt_c, "azimuths": azi_c}
+
+    # A disc well inside the screen must recover pi*r^2 to sub-percent accuracy. This is
+    # what makes the supersampling worth its cost: a pixel-centre test lands ~40% off.
+    cov = _window_coverage(azi_c, alt_c, (0.0, 0.0), RADIUS)
+    area = cov.sum() * GRID * GRID
+    check("coverage recovers the disc area to <1%",
+          abs(area - np.pi * RADIUS ** 2) / (np.pi * RADIUS ** 2) < 0.01,
+          f"{area:.1f} vs {np.pi * RADIUS ** 2:.1f} deg^2")
+    check("coverage is a fraction everywhere", bool(((cov >= 0) & (cov <= 1)).all()))
+    check("the centre pixel is fully covered (9.3 deg pixel inside a 15 deg disc)",
+          cov[ROWS // 2, COLS // 2] == 1.0)
+    check("a far corner pixel is untouched", cov[0, 0] == 0.0)
+
+    def containment(rf_map, centres, center=(0.0, 0.0)):
+        frame = pd.DataFrame({
+            "azimuth_rf_on": [centres[0]], "altitude_rf_on": [centres[1]],
+            "azimuth_rf_off": [np.nan], "altitude_rf_off": [np.nan]})
+        return window_containment(frame, rf_map, lsn_c, center, config=cfg_c)
+
+    # One bright pixel next to the disc centre -> entirely inside. Note the grid has an even
+    # number of rows and columns, so no pixel sits ON the centre: the nearest is half a pitch
+    # away in each axis, which is why the expected distance below is not zero.
+    m = np.zeros((1, 2, ROWS, COLS), dtype=np.float32)
+    m[0, 0, ROWS // 2, COLS // 2] = 1.0
+    near = (azi_c[COLS // 2], alt_c[ROWS // 2])
+    check("the nearest pixel to the centre is half a pitch off in each axis",
+          abs(near[0] - GRID / 2) < 1e-12 and abs(near[1] - GRID / 2) < 1e-12, str(near))
+    c = containment(m, near)
+    check("overlap = 1.0 for the pixel nearest the aperture centre",
+          abs(float(c["dgw_rf_overlap_on"][0]) - 1.0) < 1e-12)
+    check("distance is the analytic hypot(pitch/2, pitch/2)",
+          abs(float(c["dgw_rf_distance_on"][0]) - np.hypot(GRID / 2, GRID / 2)) < 1e-12,
+          f"{float(c['dgw_rf_distance_on'][0]):.4f} vs {np.hypot(GRID / 2, GRID / 2):.4f}")
+    # and distance really is zero when the aperture is centred on the field
+    c = containment(m, near, center=near)
+    check("distance = 0 when the aperture sits on the RF centre",
+          abs(float(c["dgw_rf_distance_on"][0])) < 1e-12)
+
+    # one bright pixel in the far corner -> entirely outside
+    m = np.zeros((1, 2, ROWS, COLS), dtype=np.float32)
+    m[0, 0, 0, 0] = 1.0
+    c = containment(m, (azi_c[0], alt_c[0]))
+    check("overlap = 0.0 for a distant pixel", float(c["dgw_rf_overlap_on"][0]) == 0.0)
+
+    # a uniform map is the sharpest check: overlap must equal disc area / screen area,
+    # independent of any per-pixel detail.
+    m = np.ones((1, 2, ROWS, COLS), dtype=np.float32)
+    expect = (np.pi * RADIUS ** 2) / ((ROWS * GRID) * (COLS * GRID))
+    c = containment(m, (0.0, 0.0))
+    check("uniform map -> overlap = disc/screen",
+          abs(float(c["dgw_rf_overlap_on"][0]) - expect) < 0.01 * expect,
+          f"{float(c['dgw_rf_overlap_on'][0]):.4f} vs {expect:.4f}")
+
+    # sub-threshold pixels must not contribute: the overlap is weighted by the POST-threshold
+    # map, because the continuous one is dominated by noise floor.
+    m = np.zeros((1, 2, ROWS, COLS), dtype=np.float32)
+    m[0, 0, ROWS // 2, COLS // 2] = 1.0
+    m[0, 0, 0, 0] = float(cfg_c.rf_frac_thresh) - 0.01     # outside the disc, below threshold
+    c = containment(m, (azi_c[COLS // 2], alt_c[ROWS // 2]))
+    check("a sub-threshold pixel outside the disc does not dilute the overlap",
+          abs(float(c["dgw_rf_overlap_on"][0]) - 1.0) < 1e-12,
+          "post-threshold weighting")
+    m[0, 0, 0, 0] = float(cfg_c.rf_frac_thresh) + 0.01     # same pixel, now above threshold
+    c = containment(m, (azi_c[COLS // 2], alt_c[ROWS // 2]))
+    check("the same pixel above threshold does dilute it",
+          float(c["dgw_rf_overlap_on"][0]) < 1.0)
+
+    # an ROI with no field, and a session with no recorded aperture, both give NaN
+    m = np.zeros((1, 2, ROWS, COLS), dtype=np.float32)
+    c = containment(m, (np.nan, np.nan))
+    check("no suprathreshold pixels -> overlap NaN", np.isnan(float(c["dgw_rf_overlap_on"][0])))
+    c = containment(np.ones((1, 2, ROWS, COLS), dtype=np.float32), (0.0, 0.0),
+                    center=(np.nan, np.nan))
+    check("unknown aperture -> all containment columns NaN",
+          bool(c[CONTAINMENT_COLUMNS].isna().all().all()))
+
+    # a non-uniform grid would silently produce wrong areas, so it must raise
+    try:
+        _window_coverage(np.array([0.0, 9.3, 30.0]), alt_c, (0.0, 0.0), RADIUS)
+        check("raises on an unevenly spaced stimulus grid", False)
+    except ValueError as e:
+        check("raises on an unevenly spaced stimulus grid", "evenly spaced" in str(e))
+
+    check("containment columns are in OUTPUT_COLUMNS, after the aperture centre",
+          OUTPUT_COLUMNS["surround_suppression"][-4:] == CONTAINMENT_COLUMNS)

@@ -1,0 +1,6 @@
+# The commit this asset was built from. A reproducible run copies code/ without
+# .git, so the version cannot be derived there and must be recorded here.
+#
+#   git rev-parse HEAD > code/CODE_VERSION
+#
+# Lines starting with '#' are ignored. Overridden by $V1DD_CODE_VERSION.

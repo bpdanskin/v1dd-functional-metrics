@@ -1,0 +1,9 @@
+# code/run is executed by the Linux capsule; a CR would break the shebang.
+code/run text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+
+# Notebooks are JSON with embedded output; a three-way text merge corrupts them
+# more often than it helps. On conflict, choose a side.
+*.ipynb -merge

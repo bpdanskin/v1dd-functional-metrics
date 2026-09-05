@@ -1,0 +1,538 @@
+"""Drifting gratings + surround suppression against analytically-known synthetic data.
+
+Tuning curves are chosen so osi / dsi / gosi / pref_dir_mean have closed-form values:
+
+  ROI 0  direction tuned  1 + cos(theta - 90)   -> osi 1/3, dsi 1.0, gosi 0.0, mean dir 90
+  ROI 1  orientation tuned 1 + cos(2(theta-90)) -> osi 1.0, dsi 0.0, gosi 0.5
+  ROI 2  flat zero                              -> unresponsive
+"""
+
+from support import check
+from v1dd_metrics import responses as tr
+from v1dd_metrics import nwb as vn
+from v1dd_metrics.common import _metric_index, _ratio
+from v1dd_metrics.config import DEFAULT_CONFIG, MetricConfig, REFERENCE_CONFIG
+from v1dd_metrics.families.drifting_gratings import DGResult, drifting_gratings_metrics, vonmises_pref_dir, vonmises_two_peak, vonmises_two_peak_fit
+from v1dd_metrics.families.roi_quality import ROI_SUMMARY_COLUMNS, _run_modulation, roi_summary_metrics, spectral_snr
+from v1dd_metrics.families.surround_suppression import SSI_COLUMNS, surround_suppression_metrics
+from v1dd_metrics.schema import OUTPUT_COLUMNS, to_output_schema
+
+
+def test_drifting_gratings():
+
+    import sys
+
+    import numpy as np
+    import pandas as pd
+
+
+    RNG = np.random.default_rng(7)
+    DT = 0.16504
+    DIRS = np.arange(0, 360, 30).astype(float)
+    SFS = np.array([0.04, 0.08])
+    N_TRIALS, N_ROIS = 8, 4
+    WINDOW = 2.0
+    PERIOD = 3.0
+
+    theta = np.deg2rad(DIRS)
+    target = np.zeros((N_ROIS, 12, 2))
+    target[0, :, 0] = 1 + np.cos(theta - np.pi / 2)          # direction tuned, at sf 0.04
+    target[0, :, 1] = 0.05
+    target[1, :, 0] = 1 + np.cos(2 * (theta - np.pi / 2))    # orientation tuned, at sf 0.04
+    target[1, :, 1] = 0.05
+    target[2, :, :] = 0.0                                     # silent
+    target[3, :, :] = 0.5                                     # flat but responsive
+
+
+    def build_session(scale=1.0, seed=0):
+        """A plane whose windowed response equals `scale * target` exactly."""
+        rng = np.random.default_rng(seed)
+        combos = [(d, s) for d in range(12) for s in range(2)] * N_TRIALS
+        rng.shuffle(combos)
+        rows, t = [], 50.0
+        for d, s in combos:
+            rows.append({"stim_name": "dg", "start_time": t, "stop_time": t + 1.985,
+                         "direction": DIRS[d], "spatial_frequency": SFS[s],
+                         "temporal_frequency": 1.0})
+            t += PERIOD
+        for _ in range(8):                                    # blank sweeps
+            rows.append({"stim_name": "dg", "start_time": t, "stop_time": t + 1.985,
+                         "direction": np.nan, "spatial_frequency": np.nan,
+                         "temporal_frequency": np.nan})
+            t += PERIOD
+        trials = pd.DataFrame(rows)
+        is_blank = trials[["temporal_frequency", "spatial_frequency", "direction"]].isna().any(axis=1).to_numpy()
+
+        spont_start, spont_stop = t + 10.0, t + 310.0
+        ts = np.arange(0.0, spont_stop + 20.0, DT)
+        traces = np.zeros((len(ts), N_ROIS))
+        for _, r in trials.loc[~is_blank].iterrows():
+            d = int(np.argmin(np.abs(DIRS - r["direction"])))
+            s = int(np.argmin(np.abs(SFS - r["spatial_frequency"])))
+            w = (ts >= r["start_time"]) & (ts <= r["start_time"] + WINDOW)
+            traces[w] = scale * target[:, d, s]
+        spont_ix = ts >= spont_start
+        traces[spont_ix] = rng.gamma(1.0, 0.1, size=(int(spont_ix.sum()), N_ROIS))
+
+        roi_table = pd.DataFrame({"column": 1, "volume": 3, "plane": 0,
+                                  "roi": np.arange(N_ROIS), "pika_roi_confidence": 0.9})
+        plane = vn.PlaneData(mouse_id="409828", depth_um=150.0, column=1, volume="3", plane=0, roi=np.arange(N_ROIS),
+                             is_valid=np.ones(N_ROIS, bool), timestamps=ts,
+                             traces={"events": traces}, roi_table=roi_table, dt=DT)
+        # running speed: first half of every condition's trials fast, rest slow
+        rts = np.arange(0.0, spont_stop + 20.0, 1 / 60)
+        speed = np.zeros_like(rts)
+        for i, (_, r) in enumerate(trials.loc[~is_blank].iterrows()):
+            if i % 2 == 0:
+                speed[(rts >= r["start_time"] - 0.2) & (rts <= r["stop_time"] + 0.2)] = 5.0
+        return plane, trials, is_blank, (spont_start, spont_stop), (speed, rts)
+
+
+    print("[1] drifting gratings: analytic tuning")
+    plane, trials, is_blank, spont, running = build_session()
+    dgw = drifting_gratings_metrics(plane, trials, is_blank, spont, running,
+                                       dg_type="windowed", rng=np.random.default_rng(0))
+    m = dgw.metrics
+    check("one row per ROI", len(m) == N_ROIS)
+    check("12 directions, 2 SFs found",
+          list(dgw.dir_list) == list(DIRS) and np.allclose(dgw.sf_list, SFS))
+    check("trial array shape (rois, dir, sf, trials)",
+          dgw.trial_responses.shape == (N_ROIS, 12, 2, N_TRIALS), str(dgw.trial_responses.shape))
+    check("blank sweeps captured separately", dgw.blank_responses.shape == (N_ROIS, 8),
+          str(dgw.blank_responses.shape))
+
+    check("ROI 0 preferred dir = 90", m.preferred_dir[0] == 90.0, str(m.preferred_dir[0]))
+    check("ROI 0 preferred sf = 0.04", np.isclose(m.preferred_sf[0], 0.04), str(m.preferred_sf[0]))
+    check("ROI 0 dsi = 1.0 (null response is zero)", abs(m.dsi[0] - 1.0) < 1e-9, f"{m.dsi[0]:.6f}")
+    check("ROI 0 osi = 1/3", abs(m.osi[0] - 1 / 3) < 1e-9, f"{m.osi[0]:.6f}")
+    check("ROI 0 gosi = 0 (pure 1st harmonic has no orientation vector)",
+          abs(m.gosi[0]) < 1e-9, f"{m.gosi[0]:.2e}")
+    check("ROI 0 pref_dir_mean = 90", abs(m.pref_dir_mean[0] - 90.0) < 1e-6,
+          f"{m.pref_dir_mean[0]:.4f}")
+
+    check("ROI 1 osi = 1.0", abs(m.osi[1] - 1.0) < 1e-9, f"{m.osi[1]:.6f}")
+    check("ROI 1 dsi = 0.0", abs(m.dsi[1]) < 1e-9, f"{m.dsi[1]:.2e}")
+    check("ROI 1 gosi = 0.5", abs(m.gosi[1] - 0.5) < 1e-9, f"{m.gosi[1]:.6f}")
+
+    check("ROI 2 (silent) is not responsive", m.frac_responsive_trials[2] == 0.0
+          and m.is_responsive[2] == 0.0, f"{m.frac_responsive_trials[2]}")
+    check("ROIs 0/1/3 are responsive",
+          all(m.is_responsive[i] == 1.0 for i in (0, 1, 3)), str(m.is_responsive.to_list()))
+    check("frac is quantised to k/8",
+          bool(np.all([abs(v * 8 - round(v * 8)) < 1e-9 for v in m.frac_responsive_trials])))
+
+    print("\n[2] the two preferred-condition definitions")
+    check("pref_cond_index matches published preferred_dir",
+          np.array_equal(dgw.dir_list[dgw.pref_cond_index[:, 0]], m.preferred_dir.to_numpy()))
+    check("invalid ROIs would be -1", dgw.pref_cond_index.shape == (N_ROIS, 2))
+
+    print("\n[3] guardrails")
+    bad = trials.copy()
+    bad.loc[bad["direction"] == 330.0, "direction"] = 300.0     # collapse to 11 directions
+    try:
+        drifting_gratings_metrics(plane, bad, is_blank, spont, running,
+                                     dg_type="windowed", rng=np.random.default_rng(0))
+        check("raises when directions != 12", False)
+    except ValueError as e:
+        check("raises when directions != 12", "expected 12" in str(e))
+    check("_ratio is NaN on a zero denominator", np.isnan(_ratio(1.0, 0.0)))
+    check("zero_to_nan=False restores the historical 0",
+          _ratio(1.0, 0.0, zero_to_nan=False) == 0.0)
+    check("_metric_index returns NaN on a zero denominator",
+          bool(np.isnan(_metric_index(0.0, 0.0))))
+
+    print("\n[4] von Mises fit")
+    # exact recovery when the target genuinely lies in the model family
+    true_params = (1.0, 2.0, 90.0, 0.3, 1.5, 0.05)
+    y_vm = vonmises_two_peak(DIRS, *true_params)
+    p_vm = vonmises_two_peak_fit(DIRS, y_vm)
+    check("recovers true von Mises parameters",
+          p_vm is not None and np.allclose(p_vm, true_params, atol=1e-6),
+          str(np.round(p_vm, 4)))
+    check("and reproduces that curve to ~1e-10",
+          np.max(np.abs(vonmises_two_peak(DIRS, *p_vm) - y_vm)) < 1e-8)
+
+    # a cosine is OUTSIDE the model family, so residuals are expected. What matters for
+    # ssi_tuning_fit is only that the preferred direction is still recovered.
+    p = vonmises_two_peak_fit(DIRS, target[0, :, 0])
+    check("fit converges on an out-of-family (cosine) curve", p is not None)
+    if p is not None:
+        pred = vonmises_two_peak(DIRS, *p)
+        y = target[0, :, 0]
+        r2 = 1 - np.sum((y - pred) ** 2) / np.sum((y - y.mean()) ** 2)
+        check("cosine fit is good but not exact (model mismatch, not failure)",
+              0.9 < r2 < 1.0, f"R^2 = {r2:.4f}, max resid {np.max(np.abs(pred - y)):.3f}")
+        check("preferred direction still recovered to <0.01 deg",
+              abs(vonmises_pref_dir(p) - 90) < 0.01, f"{vonmises_pref_dir(p):.5f}")
+    check("fit returns None on an all-NaN curve",
+          vonmises_two_peak_fit(DIRS, np.full(12, np.nan)) is None)
+
+    print("\n[5] surround suppression")
+    # full-field responses at half the windowed amplitude -> ssi = (W-F)/(W+F) = 1/3
+    plane_f, trials_f, blank_f, spont_f, running_f = build_session(scale=0.5, seed=1)
+    dgf = drifting_gratings_metrics(plane_f, trials_f, blank_f, spont_f, running_f,
+                                       dg_type="full", rng=np.random.default_rng(0))
+    ssi = surround_suppression_metrics(dgw, dgf, plane)
+    check("has the eight published SSI columns",
+          all(c in ssi.columns for c in SSI_COLUMNS))
+    check("ssi = 1/3 when W is twice F", abs(ssi.ssi[0] - 1 / 3) < 1e-9, f"{ssi.ssi[0]:.6f}")
+    check("ssi_avg = 1/3 too (uniform scaling)", abs(ssi.ssi_avg[0] - 1 / 3) < 1e-9,
+          f"{ssi.ssi_avg[0]:.6f}")
+    check("ssi_avg_at_pref_sf = 1/3", abs(ssi.ssi_avg_at_pref_sf[0] - 1 / 3) < 1e-9)
+    check("running and stationary variants both finite (4 trials each side)",
+          np.isfinite(ssi.ssi_running[0]) and np.isfinite(ssi.ssi_stationary[0]),
+          f"run={ssi.ssi_running[0]:.4f} stat={ssi.ssi_stationary[0]:.4f}")
+    check("ssi_tuning_fit finite for a well-fit ROI", np.isfinite(ssi.ssi_tuning_fit[0]),
+          f"{ssi.ssi_tuning_fit[0]:.4f}")
+
+    print("\n[5b] the aperture centre, measured and imputed")
+    # The trial frame carries no centre columns at all -- the shape of the two sessions that
+    # record none -- so `dgw.center` is (nan, nan) and the override is the only source.
+    check("no centre columns in the table -> DGResult.center is NaN",
+          not np.isfinite(dgw.center[0]) and not np.isfinite(dgw.center[1]),
+          str(dgw.center))
+    check("and the SSI frame reports NaN with no override",
+          bool(np.isnan(ssi.dgw_center_azimuth[0])), str(ssi.dgw_center_azimuth[0]))
+    check("dgw_center_inferred defaults to False, not NaN",
+          ssi.dgw_center_inferred.dtype == bool and not ssi.dgw_center_inferred.any(),
+          str(ssi.dgw_center_inferred.dtype))
+
+    # The positive path for the extraction that `window_center` replaced inline: a table that
+    # DOES carry the columns must still be read the same way, on non-blank rows, first
+    # distinct value. This is the refactor's regression check.
+    _with_center = trials.copy()
+    _with_center["center_azimuth"] = np.where(is_blank, np.nan, 1.8)
+    _with_center["center_elevation"] = np.where(is_blank, np.nan, -9.7)
+    dgw_c = drifting_gratings_metrics(plane, _with_center, is_blank, spont, running,
+                                         dg_type="windowed", rng=np.random.default_rng(0))
+    check("drifting_gratings_metrics reads a recorded centre",
+          dgw_c.center == (1.8, -9.7), str(dgw_c.center))
+    check("and the refactor changed no metric",
+          dgw_c.metrics.drop(columns=[]).equals(dgw.metrics),
+          "same seed, same trials, only the centre columns added")
+
+    imp = surround_suppression_metrics(dgw, dgf, plane,
+                                          center=(-19.6, -10.0), center_inferred=True)
+    check("an imputed centre reaches the frame",
+          (imp.dgw_center_azimuth[0], imp.dgw_center_elevation[0]) == (-19.6, -10.0),
+          f"{imp.dgw_center_azimuth[0]}, {imp.dgw_center_elevation[0]}")
+    check("and every ROI in the plane is flagged", imp.dgw_center_inferred.all(),
+          str(imp.dgw_center_inferred.to_list()))
+    check("no ssi column moves when only the centre is overridden",
+          all(np.allclose(imp[c].to_numpy(dtype=float), ssi[c].to_numpy(dtype=float),
+                          equal_nan=True) for c in SSI_COLUMNS),
+          "the centre is metadata, not an input to any index")
+
+    # A measured centre passed through explicitly must land identically, so the notebook can
+    # route every session through the same argument rather than branching on missingness.
+    meas = surround_suppression_metrics(dgw, dgf, plane, center=(1.8, -9.7))
+    check("a measured centre passed as the override lands unchanged",
+          (meas.dgw_center_azimuth[0], meas.dgw_center_elevation[0]) == (1.8, -9.7),
+          f"{meas.dgw_center_azimuth[0]}, {meas.dgw_center_elevation[0]}")
+    check("and is not flagged inferred", not meas.dgw_center_inferred.any())
+
+    print("\n[6] SSI edge cases on hand-built results")
+
+
+    def fake(resp, speeds, pref=(0, 0)):
+        n = 1
+        return DGResult(
+            metrics=None, trial_responses=resp, trial_running_speeds=speeds,
+            pref_cond_index=np.array([[pref[0], pref[1]]]),
+            tuning_params=np.full((n, 2, 6), np.nan),
+            dir_list=DIRS, sf_list=SFS, blank_responses=np.empty((n, 0)))
+
+
+    rp = vn.PlaneData(mouse_id="409828", depth_um=150.0, column=1, volume="3", plane=0, roi=np.array([0]),
+                      is_valid=np.ones(1, bool), timestamps=np.arange(10) * DT,
+                      traces={}, roi_table=pd.DataFrame({"column": [1], "volume": [3],
+                                                         "plane": [0], "roi": [0]}), dt=DT)
+    W = np.full((1, 12, 2, 8), np.nan); W[0, 0, 0] = [2.0] * 8
+    F = np.full((1, 12, 2, 8), np.nan); F[0, 0, 0] = [1.0] * 8
+    sp_all_run = np.full((12, 2, 8), 5.0)
+    sp_two_run = np.full((12, 2, 8), 0.0); sp_two_run[0, 0, :2] = 5.0
+
+    r = surround_suppression_metrics(fake(W, sp_all_run), fake(F, sp_all_run), rp)
+    check("all-running: ssi_running finite, ssi_stationary NaN",
+          np.isfinite(r.ssi_running[0]) and np.isnan(r.ssi_stationary[0]))
+    r2 = surround_suppression_metrics(fake(W, sp_two_run), fake(F, sp_two_run), rp)
+    check("only 2 running trials -> ssi_running NaN (needs 3)", np.isnan(r2.ssi_running[0]),
+          f"{r2.ssi_running[0]}")
+    check("but 6 stationary trials -> ssi_stationary finite", np.isfinite(r2.ssi_stationary[0]))
+    sp_exact = np.full((12, 2, 8), 1.0)                       # exactly at the threshold
+    r3 = surround_suppression_metrics(fake(W, sp_exact), fake(F, sp_exact), rp)
+    check("speed exactly 1.0 counts as neither running nor stationary",
+          np.isnan(r3.ssi_running[0]) and np.isnan(r3.ssi_stationary[0]))
+    r4 = surround_suppression_metrics(fake(W, sp_all_run, pref=(-1, -1)),
+                                         fake(F, sp_all_run, pref=(-1, -1)), rp)
+    check("invalid preferred condition -> all NaN",
+          bool(np.all([np.isnan(r4[c][0]) for c in SSI_COLUMNS])))
+
+    print("\n[7] published schema")
+    dgp = to_output_schema(dgw.metrics, "drifting_gratings_windowed")
+    check("DG column order matches published",
+          list(dgp.columns) == list(OUTPUT_COLUMNS["drifting_gratings_windowed"]))
+    check("is_responsive is float 0.0/1.0", dgp.is_responsive.dtype == float
+          and set(np.unique(dgp.is_responsive)) <= {0.0, 1.0})
+    ssp = to_output_schema(ssi, "surround_suppression")
+    check("SSI column order matches published (misspelling kept)",
+          list(ssp.columns) == list(OUTPUT_COLUMNS["surround_suppression"]))
+
+    print("\n[N] tuning curves survive to the exported arrays")
+    # What the .npz ships is DGResult.trial_responses verbatim. The property that matters is
+    # that the published scalar columns are recoverable from it -- otherwise the array and the
+    # table could drift and nothing would notice.
+    tc = dgw.trial_responses                      # (n_rois, n_dir, n_sf, n_trials)
+    curve = np.nanmean(tc, axis=3)                # (n_rois, n_dir, n_sf) -- the tuning curves
+
+    check("trial array is float-typed and finite where trials exist",
+          np.isfinite(tc).any() and tc.dtype.kind == "f")
+    check("float32 round-trip preserves the curve to single precision",
+          np.allclose(np.nanmean(tc.astype(np.float32), axis=3), curve,
+                      rtol=1e-6, atol=1e-9, equal_nan=True),
+          "the export casts to float32")
+
+    # preferred_dir must be the argmax of the curve at the preferred SF -- the same reduction
+    # the published column reports, recomputed from the shipped array
+    for roi in range(min(N_ROIS, 4)):
+        if not np.isfinite(m.preferred_sf[roi]):
+            continue
+        sf_i = int(np.argmin(np.abs(dgw.sf_list - m.preferred_sf[roi])))
+        at_pref = curve[roi, :, sf_i]
+        if not np.isfinite(at_pref).any():
+            continue
+        recovered = dgw.dir_list[int(np.nanargmax(at_pref))]
+        check(f"ROI {roi}: preferred_dir recomputed from the array matches the column",
+              recovered == m.preferred_dir[roi],
+              f"array {recovered} vs column {m.preferred_dir[roi]}")
+
+    # osi recomputed from the array, for the ROI whose analytic value is known above
+    sf_i = int(np.argmin(np.abs(dgw.sf_list - m.preferred_sf[0])))
+    at_pref = curve[0, :, sf_i]
+    di = int(np.nanargmax(at_pref))
+    orth = 0.5 * (at_pref[(di + 3) % 12] + at_pref[(di - 3) % 12])
+    check("ROI 0: osi recomputed from the shipped array equals the published column",
+          abs((at_pref[di] - orth) / (at_pref[di] + orth) - m.osi[0]) < 1e-9)
+
+    check("blank sweeps are per-ROI and separate from the conditions",
+          dgw.blank_responses.shape[0] == N_ROIS
+          and dgw.blank_responses.shape[1] not in (12, 24))
+    check("running speeds have no ROI axis, so they key on the plane",
+          dgw.trial_running_speeds.shape == (12, 2, N_TRIALS),
+          str(dgw.trial_running_speeds.shape))
+    check("tuning params are (n_rois, n_sf, 6) von Mises coefficients",
+          dgw.tuning_params.shape == (N_ROIS, 2, 6), str(dgw.tuning_params.shape))
+    # after the fit-only-the-used-SF speedup the unread SF is NaN BY DESIGN; a reader who
+    # does not know that will report it as a failed fit
+    fitted_per_roi = np.isfinite(dgw.tuning_params).all(axis=2).sum(axis=1)
+    check("at most one SF is fitted per ROI (the speedup, not a fit failure)",
+          bool((fitted_per_roi <= 1).all()), f"max fitted SFs = {int(fitted_per_roi.max())}")
+
+    print("\n[N] fit_all_sf: both settings exercised, because a documented flag is not an "
+          "implemented one")
+    # The pref_cond_fillna incident: a flag declared, documented, and never read, so flipping
+    # it was a silent no-op. Anything with a flag gets both settings run and asserted to
+    # differ.
+    cfg_all = MetricConfig(fit_all_sf=True)
+    dgw_all = drifting_gratings_metrics(plane, trials, is_blank, spont, running,
+                                           dg_type="windowed", config=cfg_all,
+                                           rng=np.random.default_rng(0))
+    dgf_all = drifting_gratings_metrics(plane_f, trials_f, blank_f, spont_f, running_f,
+                                           dg_type="full", config=cfg_all,
+                                           fit_sf_index=dgw_all.pref_cond_index[:, 1],
+                                           rng=np.random.default_rng(0))
+
+    fitted_fast = np.isfinite(dgw.tuning_params).all(axis=2).sum(axis=1)
+    fitted_all = np.isfinite(dgw_all.tuning_params).all(axis=2).sum(axis=1)
+    check("default fits at most one SF per ROI", bool((fitted_fast <= 1).all()),
+          f"max {int(fitted_fast.max())}")
+    check("fit_all_sf=True fits more SFs than the default",
+          int(fitted_all.sum()) > int(fitted_fast.sum()),
+          f"{int(fitted_all.sum())} vs {int(fitted_fast.sum())} (ROI, SF) fits")
+    check("fit_all_sf=True overrides the WINDOWED self-selection, which has no other escape",
+          bool((fitted_all >= fitted_fast).all() and (fitted_all > 1).any()),
+          f"max fitted SFs {int(fitted_all.max())}")
+    # Note the `dgf` fixture above passes no fit_sf_index, so it already fits every SF --
+    # unlike the notebook, which passes dgw's preferred SF. The override has to be tested
+    # against a call that is actually using the speedup.
+    dgf_fast = drifting_gratings_metrics(plane_f, trials_f, blank_f, spont_f, running_f,
+                                            dg_type="full",
+                                            fit_sf_index=dgw.pref_cond_index[:, 1],
+                                            rng=np.random.default_rng(0))
+    check("fit_all_sf=True overrides an explicit fit_sf_index on full field",
+          int(np.isfinite(dgf_all.tuning_params).all(axis=2).sum())
+          > int(np.isfinite(dgf_fast.tuning_params).all(axis=2).sum()),
+          f"{int(np.isfinite(dgf_all.tuning_params).all(axis=2).sum())} vs "
+          f"{int(np.isfinite(dgf_fast.tuning_params).all(axis=2).sum())} (ROI, SF) fits")
+
+    # The flag must not move a published column: ssi_tuning_fit reads one SF per ROI either
+    # way, so the extra fits are genuinely extra.
+    ssi_all = surround_suppression_metrics(dgw_all, dgf_all, plane, config=cfg_all)
+    check("no published SSI column moves when the extra SFs are fitted",
+          all(np.allclose(ssi[c], ssi_all[c], equal_nan=True, rtol=1e-9, atol=1e-12)
+              for c in SSI_COLUMNS),
+          "output-neutral for the tables, not for the exported params")
+
+    check("REFERENCE_CONFIG fits every SF, as the original did",
+          REFERENCE_CONFIG.fit_all_sf is True)
+    check("the default does not, so a fast run shows in differs_from_reference_config",
+          DEFAULT_CONFIG.fit_all_sf is False)
+
+    print("\n[N] locomotion: running modulation across gratings and spontaneous")
+    # Synthetic, so every expectation is analytic. build_session() marks the first half of
+    # each condition's trials fast and the rest slow, which is what makes a split possible.
+    rs = loco = roi_summary_metrics(plane, dgw, dgf, spont, running)
+    check("one row per ROI", len(loco) == N_ROIS)
+    check("column order matches the published schema",
+          list(to_output_schema(loco, "roi_summary").columns)
+          == list(OUTPUT_COLUMNS["roi_summary"]))
+    check("both grating types are reported",
+          np.isfinite(loco["run_mod_dgf"]).any() and np.isfinite(loco["run_mod_dgw"]).any())
+    check("the index is bounded in [-1, 1] like every other *_index column",
+          bool(loco[["run_mod_dgf", "run_mod_dgw"]].stack().dropna().between(-1, 1).all()))
+    check("run_frac is a fraction and constant within the plane",
+          bool(0 <= loco["run_frac"].iloc[0] <= 1) and loco["run_frac"].nunique() == 1,
+          f"{loco['run_frac'].iloc[0]:.3f}")
+
+    # the literature formula, not the paper's: denominator is the SUM, not the max
+    resp = dgw.trial_responses
+    spd = dgw.trial_running_speeds
+    thr = DEFAULT_CONFIG.running_threshold_cm_s
+    r = np.nanmean(np.where((spd > thr)[None], resp, np.nan).reshape(N_ROIS, -1), axis=1)
+    s_ = np.nanmean(np.where((spd < thr)[None], resp, np.nan).reshape(N_ROIS, -1), axis=1)
+    check("run_mod_dgw == (R_run - R_stat) / (R_run + R_stat), pooled over all trials",
+          np.allclose((r - s_) / (r + s_), loco["run_mod_dgw"], equal_nan=True, rtol=1e-12),
+          "sum in the denominator, not the max")
+
+    # a cell whose response does not depend on running has an index of exactly zero
+    flat = np.ones_like(resp)
+    check("no running dependence -> exactly 0",
+          abs(float(_run_modulation(flat, spd, thr, 3)[0])) < 1e-12)
+    # and one that only responds while running saturates at +1
+    only_run = np.where((spd > thr)[None], 1.0, 0.0) * np.ones_like(resp)
+    check("responds only while running -> +1",
+          abs(float(_run_modulation(only_run, spd, thr, 3)[0]) - 1.0) < 1e-12)
+
+    # degrade paths: no running data, and too few trials on one side
+    # Passing running=None removes only what needs the raw trace. The grating indices survive
+    # because their per-trial speeds were already computed into the DGResult -- the caller not
+    # having the trace to hand is not a reason to discard work already done.
+    no_run = roi_summary_metrics(plane, dgw, dgf, spont, None)
+    check("without the running trace, session fractions and spontaneous are NaN",
+          bool(no_run[["run_frac", "spont_run_frac", "run_mod_spont"]].isna().all().all()))
+    check("but the grating indices survive, from the speeds held in the DGResult",
+          np.isfinite(no_run["run_mod_dgw"]).any() and np.isfinite(no_run["run_mod_dgf"]).any())
+    one_sided = np.full_like(spd, 5.0)          # every trial running, none stationary
+    check("a one-sided session yields no index rather than a fabricated one",
+          _run_modulation(resp, one_sided, thr, 3) is None,
+          "13 of 25 real sessions are one-sided, so this is the common case")
+    # The rule is not "no dF/F" but "no *ratio index* on a signed trace". A correlation
+    # has no denominator, so run_corr_dff is deliberately on dF/F -- see
+    # docs/families/roi_quality.md. Ratio columns must still be events-only.
+    ratio_cols = [c for c in ROI_SUMMARY_COLUMNS
+                  if c.startswith("run_mod_") or c.startswith("spont_rate")]
+    check("no ratio index is computed on a signed trace",
+          not any(c.endswith("_dff") for c in ratio_cols), str(ratio_cols))
+    check("the only dF/F column is the correlation, which has no denominator",
+          [c for c in ROI_SUMMARY_COLUMNS if c.endswith("_dff")] == ["run_corr_dff"],
+          str(ROI_SUMMARY_COLUMNS))
+    # The instability that motivated dropping them, as arithmetic rather than assertion.
+    check("sum denominator is unbounded on near-cancelling signed responses",
+          abs(_metric_index(0.050, -0.049)) > 50, f"{_metric_index(0.050, -0.049):.1f}")
+    check("and inverts sign when both responses are negative",
+          _metric_index(-0.010, -0.050) < 0,
+          "running raised the response, yet the index reads negative")
+    check("neither failure can occur on non-negative events",
+          _metric_index(0.050, 0.049) > 0 and abs(_metric_index(0.050, 0.049)) <= 1)
+
+    # --- spontaneous activity level -------------------------------------------------
+    check("spont_rate is populated for every ROI",
+          bool(np.isfinite(loco["spont_rate"]).all()),
+          f"{loco['spont_rate'].round(4).tolist()}")
+    check("spont_rate is non-negative, as an events mean must be",
+          bool((loco["spont_rate"] >= 0).all()))
+    # The fixture fills the spontaneous block with gamma(1.0, 0.1) noise, mean 0.1
+    check("spont_rate recovers the synthetic spontaneous mean (~0.1)",
+          bool(loco["spont_rate"].between(0.05, 0.15).all()),
+          f"mean {loco['spont_rate'].mean():.4f}")
+    check("the state split brackets the overall rate",
+          bool(((loco[["spont_rate_run", "spont_rate_stat"]].min(axis=1) <= loco["spont_rate"])
+                & (loco["spont_rate"] <= loco[["spont_rate_run", "spont_rate_stat"]].max(axis=1))
+                ).all()),
+          "an overall mean must lie between the two conditional means")
+    check("run_mod_spont is exactly the index of the two shipped rates",
+          np.allclose(_metric_index(loco["spont_rate_run"].to_numpy(),
+                                       loco["spont_rate_stat"].to_numpy()),
+                      loco["run_mod_spont"], equal_nan=True),
+          "so a consumer can gate on magnitude and recompute")
+
+    # A one-sided session must still get a baseline and the state it does have. 13 of 25 real
+    # sessions are one-sided, so this is the common case, not an edge case.
+    still = (np.zeros_like(running[0]), running[1])
+    one = roi_summary_metrics(plane, dgw, dgf, spont, still)
+    check("never-ran session: spont_rate still computed",
+          bool(np.isfinite(one["spont_rate"]).all()))
+    check("never-ran session: stationary rate kept, running rate NaN",
+          bool(np.isfinite(one["spont_rate_stat"]).all())
+          and bool(one["spont_rate_run"].isna().all()))
+    check("never-ran session: no modulation index invented",
+          bool(one["run_mod_spont"].isna().all()))
+    check("with no running at all, spont_rate == spont_rate_stat",
+          np.allclose(one["spont_rate"], one["spont_rate_stat"]))
+
+    print("\n[N] spectral SNR on dF/F")
+    # Synthetic traces with a known answer: a sinusoid inside the signal band on top of white
+    # noise. More noise must mean less SNR, and pure noise must sit near 1.
+    FS = 1.0 / DT
+    n_t = 4096
+    tt = np.arange(n_t) / FS
+    rng_s = np.random.default_rng(3)
+    levels = [0.02, 0.1, 0.5]
+    sig = np.sin(2 * np.pi * 0.5 * tt)                     # 0.5 Hz, inside 0.1-1.5
+    traces = np.stack([sig + rng_s.normal(0, s, n_t) for s in levels]
+                      + [rng_s.normal(0, 0.1, n_t)], axis=1)   # last column: noise only
+    snr, sig_p, noi_p = spectral_snr(traces, fs=FS)
+
+    check("one value per ROI, from (n_frames, n_rois) input", snr.shape == (4,), str(snr.shape))
+    check("SNR falls monotonically as noise is added",
+          bool(np.all(np.diff(snr[:3]) < 0)), " > ".join(f"{v:.0f}" for v in snr[:3]))
+    check("a pure-noise trace lands near 1", 0.2 < snr[3] < 5.0, f"{snr[3]:.2f}")
+    check("the clean trace beats pure noise by orders of magnitude",
+          snr[0] / snr[3] > 100, f"ratio {snr[0] / snr[3]:.0f}")
+    check("snr == signal_power / noise_power", np.allclose(snr, sig_p / (noi_p + 1e-12)))
+    check("powers are positive", bool((sig_p > 0).all() and (noi_p > 0).all()))
+
+    # scale invariance: SNR is a ratio, so doubling the trace must not move it
+    check("invariant to trace gain",
+          np.allclose(spectral_snr(traces * 7.0, fs=FS)[0], snr, rtol=1e-9))
+    # and to a DC offset, because the estimator demeans
+    check("invariant to a DC offset (the estimator demeans)",
+          np.allclose(spectral_snr(traces + 3.0, fs=FS)[0], snr, rtol=1e-9))
+
+    # guardrails
+    try:
+        spectral_snr(traces, fs=3.0)          # Nyquist 1.5 Hz, below the 2.0-2.1 band
+        check("raises when the noise band is above Nyquist", False)
+    except ValueError as e:
+        check("raises when the noise band is above Nyquist", "Nyquist" in str(e))
+    try:
+        spectral_snr(traces[:, 0], fs=FS)
+        check("raises on a 1-D trace", False)
+    except ValueError as e:
+        check("raises on a 1-D trace", "n_frames" in str(e))
+
+    # in the table: dF/F only, NaN when that trace is absent
+    check("snr is NaN when dff was not loaded (this fixture is events-only)",
+          bool(rs[["snr", "signal_power", "noise_power"]].isna().all().all()))
+    dff_fix = np.abs(rng_s.normal(0.0, 0.05, size=(len(plane.timestamps), N_ROIS))) + 0.1
+    plane_dff = vn.PlaneData(
+        mouse_id="409828", depth_um=150.0, column=1, volume="3", plane=0,
+        roi=np.arange(N_ROIS), is_valid=np.ones(N_ROIS, bool), timestamps=plane.timestamps,
+        traces={"events": plane.traces["events"], "dff": dff_fix},
+        roi_table=plane.roi_table, dt=DT)
+    rs_dff = roi_summary_metrics(plane_dff, dgw, dgf, spont, running)
+    check("snr is populated once dff is present",
+          bool(np.isfinite(rs_dff["snr"]).all()), f"{rs_dff['snr'].round(2).tolist()}")
+    check("adding dff does not disturb the events-derived columns",
+          all(np.allclose(rs[c], rs_dff[c], equal_nan=True)
+              for c in ("spont_rate", "run_mod_dgf", "run_mod_dgw", "run_frac")))

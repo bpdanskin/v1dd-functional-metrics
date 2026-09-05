@@ -1,0 +1,28 @@
+# Local development install: pip install -e code/src
+# The Code Ocean capsule installs dependencies from .codeocean/environment.json
+# instead; this file exists so the package imports the same way off-capsule.
+[project]
+name = "v1dd-metrics"
+version = "0.1.0"
+description = "Per-ROI functional metrics from V1DD NWB sessions"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy",
+    "pandas",
+    "pyarrow",
+    "scipy",
+    "pynwb",
+    "hdmf-zarr",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "matplotlib", "seaborn"]
+metadata = ["aind-data-schema"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["v1dd_metrics*"]

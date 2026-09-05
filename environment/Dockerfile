@@ -12,19 +12,18 @@ RUN conda install -y \
 
 RUN pip install -U --no-cache-dir \
     aind-data-access-api==1.10.0 \
+    aind-data-schema==2.8.1 \
     caveclient==8.2.1 \
     cloud-volume==12.14.4 \
     hdmf-zarr==0.13.0 \
+    ipykernel==7.3.0 \
     matplotlib==3.11.1 \
     nglui==4.7.4 \
     numpy==2.5.2 \
     ossify==0.2.6 \
     pandas==2.3.3 \
+    pyarrow==25.0.0 \
     pynwb==4.1.0 \
     scipy==1.18.1 \
     seaborn==0.13.2 \
     standard-transform==2.0.0
-
-COPY postInstall /
-RUN --mount=type=secret,id=secrets . /run/secrets/secrets \
-    && /postInstall
