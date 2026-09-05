@@ -295,41 +295,32 @@ def build_processing(asset_dir: Path, sessions: List[Path], input_asset: Path,
 def _validation_summary(validation_dir: Optional[Path]) -> Optional[Dict[str, Any]]:
     """Headline numbers from the validation run, if one is present.
 
-    Takes the validation output directory itself. It used to take the results directory
-    and append the run name, which could never match: the validation notebook writes to
-    `/scratch` — deliberately, so its artifacts are not part of the asset — while
-    `--results-dir` was `/results`. The lookup silently missed and the first full run
-    shipped a `processing.json` describing only the metrics step.
+    Reads `tests.json` exactly as `code/validation/run_tests.py` writes it. The two are a
+    contract: if the keys or the location drift apart the lookup silently misses and the
+    asset ships a `processing.json` describing only the metrics step, with no error. That
+    has now happened twice -- once when validation wrote to `/scratch` while the lookup
+    searched `/results`, and once when the validation notebook was replaced by pytest and
+    this function still expected the notebook's `checks/validation.json`. A test pushes
+    `run_tests.summarise` output straight through this function so they cannot drift again.
     """
     if validation_dir is None:
         return None
-    checks = validation_dir / "checks"
-    if not checks.is_dir() and (validation_dir / "v1dd_metrics_validation").is_dir():
-        # Tolerate being handed the directory above, which is what the old flag meant.
-        checks = validation_dir / "v1dd_metrics_validation" / "checks"
-    verdict, tests = checks / "validation.json", checks / "tests.json"
-    if not verdict.is_file():
+    tests = Path(validation_dir) / "tests.json"
+    if not tests.is_file():
+        log.warning("no tests.json under %s; processing.json will record the metrics "
+                    "step only", validation_dir)
         return None
-    out: Dict[str, Any] = {}
     try:
-        v = _read_json(verdict)
-        integrity = v.get("integrity", {})
-        out["integrity_checks_passed"] = integrity.get("n_passed")
-        out["integrity_checks_total"] = integrity.get("n_checks")
-        out["integrity_failed"] = integrity.get("failed") or []
-        out["n_rois_recomputed"] = v.get("n_rois_recomputed")
+        t = _read_json(tests)
     except Exception as exc:                                      # noqa: BLE001
-        log.warning("could not read %s: %s", verdict, exc)
+        log.warning("could not read %s: %s", tests, exc)
         return None
-    if tests.is_file():
-        try:
-            t = _read_json(tests)
-            out["unit_tests_passed"] = t.get("n_pass")
-            out["unit_tests_failed"] = t.get("n_fail")
-            out["unit_test_checks"] = t.get("checks_passed")
-        except Exception as exc:                                  # noqa: BLE001
-            log.warning("could not read %s: %s", tests, exc)
-    return out
+    return {"unit_tests_passed": t.get("n_passed"),
+            "unit_tests_failed": t.get("n_failed"),
+            "unit_tests_skipped": t.get("n_skipped"),
+            "unit_tests_total": t.get("n_tests"),
+            "failed": t.get("failed") or [],
+            "seconds": t.get("seconds")}
 
 
 # ------------------------------------------------------------------ entry point

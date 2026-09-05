@@ -133,14 +133,18 @@ def test_metadata():
             env=None if env is None else {**os.environ, **env})
 
 
-    def build_validation(checks: Path) -> None:
-        """The two artifacts the validation notebook leaves behind."""
-        checks.mkdir(parents=True, exist_ok=True)
-        (checks / "validation.json").write_text(json.dumps(
-            {"integrity": {"n_passed": 57, "n_checks": 57, "failed": []},
-             "n_rois_recomputed": 0}), encoding="utf-8")
-        (checks / "tests.json").write_text(json.dumps(
-            {"n_pass": 15, "n_fail": 0, "checks_passed": 413}), encoding="utf-8")
+    def build_validation(vdir: Path) -> None:
+        """What `code/validation/run_tests.py` actually leaves behind.
+
+        This fixture used to build the validation *notebook*'s layout -- a `checks/`
+        directory holding `validation.json` -- which production has not written since the
+        notebook was replaced by pytest. It therefore passed while the real run silently
+        recorded one process instead of two. Build what the writer writes.
+        """
+        vdir.mkdir(parents=True, exist_ok=True)
+        (vdir / "tests.json").write_text(json.dumps(
+            {"exit_code": 0, "n_tests": 71, "n_passed": 71, "n_failed": 0,
+             "n_skipped": 0, "failed": [], "seconds": 18.4}), encoding="utf-8")
 
 
     print("[1] the happy path writes three valid sidecars")
@@ -196,17 +200,22 @@ def test_metadata():
     tmp2 = Path(tempfile.mkdtemp(prefix="md2_"))
     inp2 = build_input(tmp2 / "in")
     asset2 = build_asset(tmp2 / "results" / "409828_V1DD_stimulus_metrics_2026-08-16_04-16-35")
-    build_validation(tmp2 / "results" / "v1dd_metrics_validation" / "checks")
-    proc = run(asset2, inp2, ["--results-dir", str(tmp2 / "results")])
+    build_validation(tmp2 / "scratch" / "v1dd_metrics_validation")
+    proc = run(asset2, inp2, ["--results-dir", str(tmp2 / "results"),
+                              "--validation-dir",
+                              str(tmp2 / "scratch" / "v1dd_metrics_validation")])
     check("exits cleanly", proc.returncode == 0, (proc.stderr or "").strip()[-200:])
     if (asset2 / "processing.json").is_file():
         pj = json.loads((asset2 / "processing.json").read_text(encoding="utf-8"))
         check("two processes now", len(pj["data_processes"]) == 2)
         v = pj["data_processes"][1]
         check("the second is the validation", v["name"] == "Validation")
-        check("it carries the integrity result",
-              v["code"]["parameters"]["integrity_checks_passed"] == 57)
-        check("and the unit-test result", v["code"]["parameters"]["unit_test_checks"] == 413)
+        check("it carries the unit-test result",
+              v["code"]["parameters"]["unit_tests_passed"] == 71,
+              str(v["code"]["parameters"]))
+        check("and the failure list travels too",
+              v["code"]["parameters"]["failed"] == [],
+              str(v["code"]["parameters"]))
 
     print("\n[2b] the real layout: validation writes to scratch, not beside the asset")
     # The first full run shipped a one-process processing.json because [2] above is not the
@@ -217,7 +226,7 @@ def test_metadata():
     inp3 = build_input(tmp3 / "in")
     asset3 = build_asset(tmp3 / "results" / "409828_V1DD_stimulus_metrics_2026-08-16_19-40-03")
     vdir3 = tmp3 / "scratch" / "v1dd_metrics_validation"
-    build_validation(vdir3 / "checks")
+    build_validation(vdir3)
 
     proc = run(asset3, inp3, ["--results-dir", str(tmp3 / "results")])
     check("exits cleanly", proc.returncode == 0, (proc.stderr or "").strip()[-200:])
@@ -234,8 +243,8 @@ def test_metadata():
         pj = json.loads((asset3 / "processing.json").read_text(encoding="utf-8"))
         check("--validation-dir finds it", len(pj["data_processes"]) == 2,
               str(len(pj["data_processes"])))
-        check("integrity result carried across directories",
-              pj["data_processes"][1]["code"]["parameters"]["integrity_checks_passed"] == 57)
+        check("the unit-test result carried across directories",
+              pj["data_processes"][1]["code"]["parameters"]["unit_tests_passed"] == 71)
         code = pj["data_processes"][0]["code"]
         # A reproducible run copies code/ without .git, so `git rev-parse` returns nothing and
         # the asset ships `commit_hash: null` unless the version is supplied explicitly.

@@ -121,11 +121,60 @@ the per-ROI path kept as an automatic fallback whenever the flat form does not c
 paths through a fake ragged column and asserts they agree. **The speedup itself is
 unverified against a real NWB** -- confirm on the next capsule run.
 
+## The third capsule run, 2026-09-05 -- `--session 4:1`
+
+The `image_mask` branch and the plane-0 anomaly session, on `d0aafd5`. All eight outputs
+landed, 1,550 ROIs x 95 columns, `failed_outputs` empty, and the metadata stage completed
+**despite** validation reporting a failure -- which is the intended non-fatal behaviour.
+
+`aperture centres: 0 measured, 0 inferred, 1 unknown` is correct: this session records no
+centre and, alone in its column, has no donor to impute from.
+
+**`roi_position` works on the dense-mask path too** -- centroids 100 % inside 0-511, no
+NaN -- and it produced a *new* line of evidence on the plane-0 anomaly, now recorded in
+[[two-anomalous-sessions]].
+
+### `processing.json` recorded one process instead of two -- again
+
+The exact defect from the fork's first reproducible run, from a new cause that is mine.
+`metadata._validation_summary` still expected the **retired validation notebook's**
+layout -- `<validation_dir>/checks/validation.json` plus a `tests.json` keyed
+`n_pass`/`n_fail` -- while `run_tests.py` writes `<validation_dir>/tests.json` keyed
+`n_passed`/`n_failed`. Wrong directory, wrong key names, and a hard dependency on a file
+that no longer exists. It fails **silently**: no error, just one process where there
+should be two.
+
+Worse, `test_metadata` *passed* throughout, because the ported fixture built the
+notebook's layout. The fork's own memory warned about this precise thing: *"test_metadata
+built validation artifacts inside the results dir -- a layout production never has -- so
+it passed throughout."* The port carried the fiction across.
+
+Fixed: the reader now reads what the writer writes, the fixture builds the real layout,
+and a new test drives `run_tests.summarise` output **straight through**
+`_validation_summary` so the two halves cannot drift again.
+
+### A test broke on a Unix socket
+
+`test_it_refuses_in_a_git_less_copy_with_no_version` did `copytree(REPO/"code")`, and a
+live capsule leaves editor state there -- including `.vscode/code-server-ipc.sock`, which
+`copytree` cannot copy. Now it copies only `run_pipeline.py` and `src/v1dd_metrics`,
+which is what the test actually needs and is immune to whatever else accumulates.
+
+**Fourth recurrence of the same class.** The rule stands: *a test must construct the shape
+production has, and must not assume anything about the directory it runs in.*
+
+### The mask read-speed fix is still unverified
+
+398.5 s for 1,550 ROIs looks better than the previous 1306.7 s for 2,708, but **this
+session takes the `image_mask` path, which was never optimised** -- the bulk read applies
+to `pixel_mask` only. A `pixel_mask` session (e.g. `--session 1:3`) is still needed to
+confirm it.
+
 ## What remains, in the order it should happen
 
-1. **Re-run one session** to confirm the two fixes above: that the suite is clean in the
-   capsule, and that reading the ragged mask column whole brings the session back toward
-   ~15 min. Everything else in the pipeline is now known to work end to end.
+1. **Re-run `--session 1:3`** (a `pixel_mask` session) to confirm three things at once:
+   the suite is clean in the capsule, `processing.json` now records **two** processes, and
+   the bulk mask read actually cuts the time. Everything else is known to work end to end.
 
    ```bash
    code/run --session 1:3          # ~12 min against ~5 h for the full asset

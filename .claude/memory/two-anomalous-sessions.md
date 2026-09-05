@@ -57,19 +57,46 @@ non-zero pixels per ROI is **38** in col 4 / vol 1 plane 0 (min 27) against **26
 col 2 / vol 5, where `pixel_mask` sessions sit at **196** (171-228). A 38-pixel soma mask
 at 512x512 is small enough to question.
 
+## Morphology confirms it, and rules out the mask format as the cause
+
+Measured 2026-09-05 by the new `roi_position` family, running on this session for the
+first time (`code/run --session 4:1`). Median ROI footprint per plane:
+
+| plane | ROIs | median area px | median radius px | approx diameter |
+|---|---|---|---|---|
+| **0** | 1,038 | **70.5** | **4.74** | **~7.4 um** |
+| 1 | 9 | 226.0 | 8.48 | ~13 um |
+| 2 | 34 | 201.5 | 8.01 | ~12.5 um |
+| 3 | 87 | 180.0 | 7.57 | ~12 um |
+| 4 | 162 | 169.0 | 7.33 | ~11 um |
+| 5 | 220 | 157.0 | 7.07 | ~11 um |
+
+**Planes 1-5 of this session look entirely normal** -- 157-226 px, matching the 177 px
+median measured on a `pixel_mask` session (col 1 / vol 3). They use `image_mask` too. So
+**the mask format is not the cause**: whatever happened, happened to plane 0 alone.
+
+Plane 0's footprints are 2-3x smaller than its own siblings, about **half the diameter of
+a real soma**. Together with 100 % low confidence at a median of 0.084, these read as
+spurious or rejected detections rather than neurons. That is a third independent line --
+count, confidence, and now morphology -- all pointing at plane 0 specifically.
+
+Centroids were valid throughout: 100 % inside 0-511, no NaN. The reading code is fine; the
+data in that plane is not.
+
 ## Questions to take upstream
 
 1. Why do these two sessions carry `image_mask` when 23 carry `pixel_mask`? Different
    segmentation tool, different version, or a re-export?
-2. What happened in col 4 / vol 1 plane 0? Is it a plane-assignment bug, a rejected-ROI
-   dump, or a real acquisition failure? **Should those 1,038 ROIs be in the asset at all?**
+2. What happened in col 4 / vol 1 plane 0? Count, confidence **and footprint size** all
+   single it out, while its five siblings are normal. A rejected-ROI dump is now the
+   most likely reading. **Should those 1,038 ROIs be in the asset at all?**
 3. Why do these two sessions have off-schedule filtering dates -- and why is col 2 / vol 5
    filtered four months after everything else?
 4. Why is the windowed-grating aperture position missing for exactly these two? The
    stimulus clearly ran (both have complete SSI and `preferred_dir`), so only the recorded
    position is absent.
-5. Is the 38-pixel median mask in col 4 / vol 1 plane 0 the same quantity as the 196-pixel
-   median elsewhere, or a different mask definition?
+5. Are plane 0's ~70-pixel footprints the same quantity as the ~180-226 px measured in
+   its sibling planes? They cannot both be somas.
 
 ## Corrected 2026-09-05: the `_filtered_` suffix was never lost
 

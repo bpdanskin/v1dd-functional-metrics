@@ -91,7 +91,13 @@ def test_it_refuses_in_a_git_less_copy_with_no_version(tmp_path):
     because the tests ran in a shape production never has. This is that shape.
     """
     code = tmp_path / "code"
-    shutil.copytree(REPO / "code", code,
+    # Copy only what the entry point needs, not the whole tree. A live capsule leaves
+    # editor state in `code/` -- including a Unix socket at `.vscode/code-server-ipc.sock`,
+    # which `copytree` cannot copy and which failed this test in the capsule while passing
+    # everywhere else.
+    (code / "src").mkdir(parents=True)
+    shutil.copy2(REPO / "code" / "run_pipeline.py", code / "run_pipeline.py")
+    shutil.copytree(REPO / "code" / "src" / "v1dd_metrics", code / "src" / "v1dd_metrics",
                     ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     # Control the fixture rather than inherit it. `code/CODE_VERSION` ships comment-only,
     # but a capsule stamps it before a run -- and a copy carrying a stamped version is not
