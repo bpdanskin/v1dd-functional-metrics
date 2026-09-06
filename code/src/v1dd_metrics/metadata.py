@@ -281,12 +281,20 @@ def build_processing(asset_dir: Path, sessions: List[Path], input_asset: Path,
             stage=ProcessStage.ANALYSIS,
             experimenters=experimenters,
             start_date_time=end_time,
+            # The suite's own duration, so the record is not open-ended. AIND allows a
+            # null end, but a process with no end reads as one that never finished.
+            end_date_time=end_time + timedelta(
+                seconds=float(validation.get("seconds") or 0.0)),
             code=Code(url=REPO_URL, version=_git_commit(repo),
                       parameters=dict(validation)),
             output_path=".",
-            notes=("Unit tests against synthetic data, and integrity checks over every "
-                   "row of the asset. Artifacts are not part of this asset; they stay "
-                   "in the validation output directory."),
+            notes=(
+                f"{validation.get('unit_tests_total')} unit tests against synthetic "
+                f"data, run inside the capsule after the metrics step so the asset "
+                f"records whether they passed. The pipeline's own row-level guards "
+                f"(family coverage, one ROI set across families) run during the "
+                f"metrics step and abort it. Test artifacts are not part of this "
+                f"asset; they stay in the validation output directory."),
         ))
 
     return Processing(data_processes=processes)

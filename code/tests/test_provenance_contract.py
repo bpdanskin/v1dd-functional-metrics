@@ -114,3 +114,42 @@ def test_no_validation_artifacts_is_reported_not_guessed(tmp_path):
     from v1dd_metrics.metadata import _validation_summary
     assert _validation_summary(tmp_path) is None
     assert _validation_summary(None) is None
+
+
+def test_a_run_records_where_its_time_went():
+    """Wall time alone cannot tell a slow family from a slow read.
+
+    Two runtime claims in this project's history were wrong because the only number
+    recorded was a total: one compared a per-session timer against a whole-run timer,
+    the other extrapolated the asset from its second-largest session.
+    """
+    acc = pl.Accumulator()
+    with acc.stage("drifting_gratings_windowed"):
+        pass
+    with acc.stage("load_masks"):
+        pass
+    assert set(acc.timing) == {"drifting_gratings_windowed", "load_masks"}
+
+    with acc.stage("load_masks"):
+        pass
+    assert len(acc.timing) == 2, "a stage seen twice accumulates, it does not overwrite"
+    assert all(v >= 0 for v in acc.timing.values())
+
+
+def test_the_mask_read_path_is_recorded_not_inferred():
+    """The bulk read falls back per ROI silently, so the asset must say which ran."""
+    summary = pl._mask_read_summary([
+        {"source": "pixel_mask", "bulk_read": True},
+        {"source": "pixel_mask", "bulk_read": True},
+        {"source": "pixel_mask", "bulk_read": False},
+        {"source": "image_mask", "bulk_read": False},
+        {"source": None, "bulk_read": None},
+    ])
+    assert summary["pixel_mask"] == {"planes": 3, "bulk_read": 2, "per_roi_read": 1}
+    assert summary["image_mask"]["planes"] == 1
+    assert "none" in summary, "a plane with no mask column must still be counted"
+
+
+def test_timing_and_mask_reads_reach_the_record(record):
+    assert "stage_seconds" in record and "mask_reads" in record
+    json.dumps(prov.jsonable(record), allow_nan=False)

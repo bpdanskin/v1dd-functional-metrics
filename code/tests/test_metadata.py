@@ -216,6 +216,14 @@ def test_metadata():
         check("and the failure list travels too",
               v["code"]["parameters"]["failed"] == [],
               str(v["code"]["parameters"]))
+        check("the validation process is not left open-ended",
+              v["end_date_time"] is not None, str(v["end_date_time"]))
+        check("and its end is its start plus the suite's own duration",
+              v["end_date_time"] > v["start_date_time"],
+              f"{v['start_date_time']} -> {v['end_date_time']}")
+        check("the notes describe what actually ran, not the retired notebook's checks",
+              "unit tests" in v["notes"] and "integrity checks over every row"
+              not in v["notes"], v["notes"])
 
     print("\n[2b] the real layout: validation writes to scratch, not beside the asset")
     # The first full run shipped a one-process processing.json because [2] above is not the

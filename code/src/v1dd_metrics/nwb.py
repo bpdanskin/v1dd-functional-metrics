@@ -526,6 +526,7 @@ class RoiMasks:
     source: str                       # "pixel_mask" or "image_mask"
     shape: Optional[Tuple[int, int]] = None
     weights_all_one: bool = True
+    bulk_read: bool = False           # ragged column read whole, not one ROI at a time
 
     @property
     def n_rois(self) -> int:
@@ -547,8 +548,9 @@ def load_roi_masks(nwbfile, plane) -> RoiMasks:
     dense per-ROI boolean image. Both reduce to the same pixel coordinates, so nothing
     downstream needs to know which was stored -- see docs/families/roi_position.md.
 
-    Read per ROI rather than whole-column: a dense mask is (n_rois, 512, 512), which is
-    far larger than the footprints it describes.
+    The ragged column is read whole and sliced in memory; the dense one is read per ROI,
+    because (n_rois, 512, 512) is far larger than the footprints it describes.
+    ``bulk_read`` on the result says which path the ragged case actually took.
     """
     ps = _plane_segmentation(nwbfile, plane)
     colnames = list(getattr(ps, "colnames", []))
@@ -565,6 +567,7 @@ def load_roi_masks(nwbfile, plane) -> RoiMasks:
         # of a session's wall time. The per-ROI path below is kept as a fallback and is
         # taken whenever the flat form does not check out.
         flat = ends = None
+        bulk = False
         try:
             flat = np.asarray(column.target.data[:])
             ends = np.asarray(column.data[:], dtype=np.int64)
@@ -578,6 +581,7 @@ def load_roi_masks(nwbfile, plane) -> RoiMasks:
         if flat is not None:
             starts = np.concatenate([[0], ends[:-1]])
             entries = [flat[a:b] for a, b in zip(starts, ends)]
+            bulk = True
         else:
             entries = (np.asarray(column[i]) for i in range(n_rois))
 
@@ -597,7 +601,7 @@ def load_roi_masks(nwbfile, plane) -> RoiMasks:
             counts.append(len(x))
 
     elif "image_mask" in colnames:
-        source = "image_mask"
+        source, bulk = "image_mask", False
         column = ps["image_mask"]
         data = getattr(column, "data", column)
         shape = tuple(int(v) for v in np.shape(data)[1:3]) or None
@@ -616,4 +620,5 @@ def load_roi_masks(nwbfile, plane) -> RoiMasks:
     return RoiMasks(
         row=np.concatenate(rows) if rows else np.zeros(0, np.int32),
         col=np.concatenate(cols) if cols else np.zeros(0, np.int32),
-        offsets=offsets, source=source, shape=shape, weights_all_one=weights_one)
+        offsets=offsets, source=source, shape=shape, weights_all_one=weights_one,
+        bulk_read=bulk)

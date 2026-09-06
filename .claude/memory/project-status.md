@@ -1,6 +1,6 @@
 ---
 name: project-status
-description: "Where the refactor stands as of 2026-09-05: P0-P4 done plus roi_position, what is verified and how, and the ordered list of what remains."
+description: "Where the refactor stands as of 2026-09-05: P0-P4 and roi_position done and capsule-verified over four runs; P5 documentation is next. Includes the retracted runtime regression."
 metadata:
   node_type: memory
   type: project
@@ -18,14 +18,14 @@ Read this first to pick the work up. Detail lives in the notes it points at, and
 | **P1** core ported | done -- five modules into the package, prose moved to `docs/pipeline.md` and `docs/data_access.md` |
 | **P2** families and orchestrator | done -- nine output blocks across seven analysis families, `pipeline.py` replaces the 25-cell notebook, four metric corrections, two deferred columns added |
 | **P3** output restructure | done, absorbed into P2 -- one wide parquet plus three npz; no per-family CSVs |
-| **P4** tests to pytest | done -- 67 tests, clean in a checkout **and** in a `.git`-less copy |
-| **roi_position** (added after P4) | built and unit-tested; **never run against real data** |
+| **P4** tests to pytest | done -- 76 tests, clean in a checkout, in a `.git`-less copy, and in the capsule |
+| **roi_position** (added after P4) | done -- verified in the capsule on both mask formats |
 
 Wide table is **95 columns** (9 identity + 86 metrics).
 
 ## How it is verified
 
-`python -m pytest` (67 tests) and
+`python -m pytest` (76 tests) and
 `python code/validation/replay_reference.py --asset <shipped asset>`, which replays
 **34 of the 72 metric columns** the reference asset carries -- drifting gratings, all eight
 `ssi_*`, the RF centres and the four `dgw_rf_*` -- against a float32 noise floor. See
@@ -106,20 +106,45 @@ This is the third recurrence of the class recorded in [[test-suite-shape]]. The 
 holds and needs stating more strongly: **a test that reads process state must set that
 state itself.**
 
-### Runtime regressed, and it was my design choice
+### Runtime: what looked like a 45 % regression was a measurement error
 
-1306.7 s for one session against 900.6 s before `roi_position` existed -- +45 %, which
-extrapolates to **~9.1 h** for 25 sessions against the fork's 5.1 h.
+**Retracted.** The claim was that `roi_position` cost +45 % (900.6 s -> 1306.7 s) and
+that the per-ROI `pixel_mask` read was to blame. **Both halves were wrong**, and the way
+they were wrong is the lesson.
 
-Cause: `load_roi_masks` read `pixel_mask` **per ROI**, about 450 store accesses per plane.
-The justification for per-ROI reads -- that a dense mask is (n_rois, 512, 512) -- applies
-only to `image_mask`. The ragged column is small enough to read whole.
+The pipeline prints two timers. `... 900.6s` at the end of a session line is
+*that session*; `6 planes, 2708 ROIs, 20.5 min` is the whole run, and `wall_seconds` in
+provenance is the same quantity. **900.6 s was compared against 1306.7 s, a session timer
+against a run timer.** Run 1's comparable number is 1230 s. So:
 
-Fixed: the flat array and its cumulative index are read once and sliced in memory, with
-the per-ROI path kept as an automatic fallback whenever the flat form does not check out
-(length, monotonicity, and ROI count are all verified first). A unit test drives both
-paths through a fake ragged column and asserts they agree. **The speedup itself is
-unverified against a real NWB** -- confirm on the next capsule run.
+| run | commit | col/vol | ROIs | wall_seconds |
+|---|---|---|---|---|
+| 1 | `f9ca782` | 1/3 | 2,708 | 1230 (crashed after this print) |
+| 2 | `68255af` | 1/3 | 2,708 | 1306.7 |
+| 3 | `d0aafd5` | 4/1 | 1,550 | 737.2 |
+| 4 | `05a57c3` | 1/3 | 2,708 | 1324.5 |
+
+Run 1 already read masks per ROI and threw them away, so runs 1 and 2 differ only by the
+`roi_position` family itself: **+6 %, not +45 %**.
+
+The second error compounded it. 25 x 22 min = 9.1 h assumed col 1 / vol 3 is typical. It
+is the **second largest of the 25 sessions** (2,708 ROIs against a 1,576 mean); only
+col 5 / vol 3 is bigger. Runtime is close to linear in ROIs -- 0.489 s/ROI at 2,708 and
+0.476 s/ROI at 1,550 -- so the asset projects to **39,407 x ~0.49 s = 5.4 h**, against the
+fork's 5.1 h. **There is no runtime problem to solve, and there never was.**
+
+**The lesson:** two numbers printed by the same program are not the same measurement.
+Provenance now records `stage_seconds` per family and `mask_reads` per plane, so the next
+such question is answered from the asset instead of from arithmetic on log lines.
+
+### The bulk mask read is real but bought nothing measurable
+
+1324.5 s against run 2's 1306.7 s on the identical session: **+1.4 %, i.e. no change.**
+Reading the ragged column whole is still the right shape (2 store accesses per plane
+rather than ~450) and it is kept, but the 45 % it was meant to recover did not exist. Its
+one genuine defect -- that the fallback to per-ROI reads is silent, so a run cannot say
+which path it took -- is now fixed by recording `bulk_read` on `RoiMasks` and summarising
+it in provenance.
 
 ## The third capsule run, 2026-09-05 -- `--session 4:1`
 
@@ -163,41 +188,49 @@ which is what the test actually needs and is immune to whatever else accumulates
 **Fourth recurrence of the same class.** The rule stands: *a test must construct the shape
 production has, and must not assume anything about the directory it runs in.*
 
-### The mask read-speed fix is still unverified
+## The fourth capsule run, 2026-09-05 -- `--session 1:3` again
 
-398.5 s for 1,550 ROIs looks better than the previous 1306.7 s for 2,708, but **this
-session takes the `image_mask` path, which was never optimised** -- the bulk read applies
-to `pixel_mask` only. A `pixel_mask` session (e.g. `--session 1:3`) is still needed to
-confirm it.
+`05a57c3`, the same `pixel_mask` session as runs 1 and 2, to close three open questions.
+All three closed.
+
+* **The suite is clean in the capsule: 73 passed, 0 failed, 0 skipped.** The five-shape
+  verification held; no test read state it had not set.
+* **`processing.json` records two processes.** The `_validation_summary` fix works
+  against the real writer, and the parameters carry `unit_tests_passed: 73`.
+* **The bulk mask read changed nothing measurable** -- see above.
+
+`roi_position` reproduced run 2 exactly: 2,708 ROIs x 95 columns, 409/470/483/478/438/430
+per plane, median area 173-185 px across all six planes, centroids 100 % inside 0-511, no
+NaN. Both anatomical frames correctly all-NaN on a one-column run.
+
+Two smaller defects found by reading the sidecar rather than the log:
+
+* The Validation process had **`end_date_time: null`**. AIND permits it, but a process
+  with no end reads as one that never finished. It now ends at start + the suite's own
+  `seconds`.
+* Its notes promised *"integrity checks over every row of the asset"*, which this repo
+  does not run -- that was the retired notebook's job. The pipeline's row-level guards
+  (`check_families_ran`, `check_roi_coverage`) run inside the metrics step and abort it.
+  The notes now say what actually happens.
 
 ## What remains, in the order it should happen
 
-1. **Re-run `--session 1:3`** (a `pixel_mask` session) to confirm three things at once:
-   the suite is clean in the capsule, `processing.json` now records **two** processes, and
-   the bulk mask read actually cuts the time. Everything else is known to work end to end.
-
-   ```bash
-   code/run --session 1:3          # ~12 min against ~5 h for the full asset
-   ```
-
-   That exercises session discovery, the aperture pre-pass, all nine family calls, the
-   wide-table merge, the three array writers, provenance and the AIND sidecars. The run is
-   recorded as partial, so it cannot be mistaken for a complete asset. **Do this before
-   anything else**: every prior defect in this project's history passed its tests and
-   failed in the capsule, and every remaining item is cheaper to judge afterwards.
-2. **Exercise `roi_position` on real data** as part of that run. `load_roi_masks` has
-   never touched a real NWB, and the two `image_mask` sessions take a different branch --
-   see [[two-anomalous-sessions]]. Check centroids land inside 0..512 and that
-   `roi_area_px` medians are sane.
-3. **Confirm which asset is mounted.** The reference run's provenance lists `_filtered_`
-   session names; the current mount has bare ones. If the mount has been re-published the
-   ROI set may not match the reference's 39,407, which would make the replay gate compare
-   against the wrong target.
-4. **P5 documentation** -- six family pages remain (`roi_position` is written), plus the
+1. **P5 documentation.** Six family pages remain (`roi_position` is written), plus the
    working-notes scrub recorded in [[metric-cautions]], example notebooks, and figures
    built from the local 2026-09-03 asset.
-5. **P6 capsule run** -- the full asset, against the checklist in
-   [[array-replay-validates-offline]].
+2. **P6 capsule run** -- the full asset, against the checklist in
+   [[array-replay-validates-offline]]. **Budget ~5.5 h**, not the 9.1 h this note
+   previously claimed. Check `stage_seconds` afterwards: the inherited claim that
+   drifting gratings is ~96 % of runtime has never been measured in this repo, and the
+   asset now records the answer.
+3. **Confirm `mask_reads` on the full run.** 23 sessions should report `pixel_mask` with
+   `bulk_read` on every plane and `per_roi_read: 0`; the two in
+   [[two-anomalous-sessions]] should report `image_mask`. A non-zero `per_roi_read` means
+   the flat form failed its checks somewhere and is worth knowing about.
+
+The pipeline itself is **done and verified end to end** on both mask formats, both a
+normal and an anomalous session, and in five environment shapes. Nothing outstanding
+blocks P5.
 
 ## Open questions that are not ours to answer
 

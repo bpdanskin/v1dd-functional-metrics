@@ -8,6 +8,7 @@ docs/pipeline.md for the stage order and docs/outputs.md for the asset layout.
 from __future__ import annotations
 
 import dataclasses
+from contextlib import contextmanager
 import json
 import platform
 import time
@@ -60,7 +61,18 @@ class Accumulator:
         self.cond_means: dict[str, list] = {"natural_images": [], "natural_images_12": []}
         self.cond_ids: dict[str, Any] = {}
         self.plane_log: list[dict] = []
+        self.mask_log: list[dict] = []
+        self.timing: dict[str, float] = {}
         self.failures: list[dict] = []
+
+    @contextmanager
+    def stage(self, name: str):
+        """Accumulate wall time under ``name`` across every plane."""
+        t = time.perf_counter()
+        try:
+            yield
+        finally:
+            self.timing[name] = self.timing.get(name, 0.0) + time.perf_counter() - t
 
     def tables(self) -> dict[str, pd.DataFrame]:
         return {f: pd.concat(v, ignore_index=True) for f, v in self.parts.items() if v}
@@ -122,35 +134,40 @@ def process_plane(plane, ctx: dict, acc: Accumulator, config: MetricConfig,
 
     # Receptive fields first: surround suppression reports how much of each field the
     # grating aperture covered, so the maps must exist before it runs.
-    rf_df, rf_map = rfm.receptive_field_metrics(
-        plane, ctx["lsn_trials"], ctx["spont"], ctx["lsn"], config=config, rng=rng())
+    with acc.stage("receptive_fields"):
+        rf_df, rf_map = rfm.receptive_field_metrics(
+            plane, ctx["lsn_trials"], ctx["spont"], ctx["lsn"], config=config, rng=rng())
     acc.parts["rf_metrics"].append(rf_df)
     acc.rf_maps.append(rf_map)
 
     trials, blank = ctx["dg_trials"]["windowed"]
-    dgw = dgm.drifting_gratings_metrics(
-        plane, trials, blank, ctx["spont"], ctx["running"], dg_type="windowed",
-        config=config, rng=rng())
+    with acc.stage("drifting_gratings_windowed"):
+        dgw = dgm.drifting_gratings_metrics(
+            plane, trials, blank, ctx["spont"], ctx["running"], dg_type="windowed",
+            config=config, rng=rng())
     acc.parts["drifting_gratings_windowed"].append(dgw.metrics)
 
     # Full field fits only the spatial frequency surround suppression reads, which is
     # windowed's preferred one per ROI.
     trials, blank = ctx["dg_trials"]["full"]
-    dgf = dgm.drifting_gratings_metrics(
-        plane, trials, blank, ctx["spont"], ctx["running"], dg_type="full",
-        fit_sf_index=dgw.pref_cond_index[:, 1], config=config, rng=rng())
+    with acc.stage("drifting_gratings_full"):
+        dgf = dgm.drifting_gratings_metrics(
+            plane, trials, blank, ctx["spont"], ctx["running"], dg_type="full",
+            fit_sf_index=dgw.pref_cond_index[:, 1], config=config, rng=rng())
     acc.parts["drifting_gratings_full"].append(dgf.metrics)
 
-    containment = ssm.window_containment(rf_df, rf_map, ctx["lsn"], ctx["center"],
-                                         config=config)
-    acc.parts["surround_suppression"].append(ssm.surround_suppression_metrics(
-        dgw, dgf, plane, config=config, containment=containment,
-        center=ctx["center"], center_inferred=ctx["center_inferred"]))
+    with acc.stage("surround_suppression"):
+        containment = ssm.window_containment(rf_df, rf_map, ctx["lsn"], ctx["center"],
+                                             config=config)
+        acc.parts["surround_suppression"].append(ssm.surround_suppression_metrics(
+            dgw, dgf, plane, config=config, containment=containment,
+            center=ctx["center"], center_inferred=ctx["center_inferred"]))
 
     # Locomotion spans both grating types and the spontaneous block, so it is its own
     # family rather than columns bolted onto one of them.
-    acc.parts["roi_summary"].append(rqm.roi_summary_metrics(
-        plane, dgw, dgf, ctx["spont"], ctx["running"], config=config))
+    with acc.stage("roi_summary"):
+        acc.parts["roi_summary"].append(rqm.roi_summary_metrics(
+            plane, dgw, dgf, ctx["spont"], ctx["running"], config=config))
 
     for key, res in (("dgw", dgw), ("dgf", dgf)):
         part = acc.tuning[key]
@@ -166,23 +183,26 @@ def process_plane(plane, ctx: dict, acc: Accumulator, config: MetricConfig,
         acc.tuning_axes = (dgw.dir_list, dgw.sf_list)
 
     for fam in ("natural_images", "natural_images_12"):
-        df, means = nim.natural_images_metrics(
-            plane, ctx["ni_trials"][fam], ctx["spont"], ns_type=fam, config=config,
-            rng=rng())
+        with acc.stage(fam):
+            df, means = nim.natural_images_metrics(
+                plane, ctx["ni_trials"][fam], ctx["spont"], ns_type=fam, config=config,
+                rng=rng())
         acc.parts[fam].append(df)
         if means is not None:
             acc.cond_means[fam].append(means[0])
             acc.cond_ids.setdefault(fam, means[1])
 
-    acc.parts["natural_movie"].append(nmm.natural_movie_metrics(
-        plane, ctx["nm_trials"], ctx["spont"], config=config, rng=rng()))
+    with acc.stage("natural_movie"):
+        acc.parts["natural_movie"].append(nmm.natural_movie_metrics(
+            plane, ctx["nm_trials"], ctx["spont"], config=config, rng=rng()))
 
     # Anatomical position. The masks are read in process_session rather than by
     # load_plane, which drops them: eight of nine output blocks do not want a dense
     # per-ROI footprint.
-    acc.parts["roi_position"].append(rpm.roi_position_metrics(
-        plane, ctx["masks"], config=config, mouse=None,
-        published=ctx["published_offsets"], retinotopic=ctx["retinotopic_offsets"]))
+    with acc.stage("roi_position"):
+        acc.parts["roi_position"].append(rpm.roi_position_metrics(
+            plane, ctx["masks"], config=config, mouse=None,
+            published=ctx["published_offsets"], retinotopic=ctx["retinotopic_offsets"]))
 
     acc.plane_log.append({"session": ctx["session_name"], "column": plane.column,
                           "volume": plane.volume, "plane": plane.plane,
@@ -242,12 +262,22 @@ def process_session(row: pd.Series, centers, acc: Accumulator, config: MetricCon
                 "azimuths": np.asarray(ctx["lsn"]["azimuths"], dtype=np.float64)}
 
         for plane_key in vn.list_planes(nwbfile):
-            plane = vn.load_plane(nwbfile, plane_key, trace_types=("events", "dff"))
+            with acc.stage("load_traces"):
+                plane = vn.load_plane(nwbfile, plane_key, trace_types=("events", "dff"))
             try:
-                ctx["masks"] = vn.load_roi_masks(nwbfile, plane_key)
+                with acc.stage("load_masks"):
+                    ctx["masks"] = vn.load_roi_masks(nwbfile, plane_key)
             except KeyError as exc:          # no mask column -> position columns NaN
                 print(f"    !! {plane_key}: {exc}", flush=True)
                 ctx["masks"] = None
+            # Which read path a plane took is otherwise invisible: the bulk read falls
+            # back to per-ROI silently, and a run that looks slow cannot be told apart
+            # from one that fell back. See docs/pipeline.md.
+            acc.mask_log.append({
+                "session": row["name"], "plane": str(plane_key),
+                "source": ctx["masks"].source if ctx["masks"] is not None else None,
+                "bulk_read": bool(ctx["masks"].bulk_read) if ctx["masks"] is not None
+                             else None})
             process_plane(plane, ctx, acc, config, seed)
             del plane
     finally:
@@ -455,13 +485,25 @@ def _package_version(name: str) -> Optional[str]:
         return None
 
 
+def _mask_read_summary(mask_log: list) -> dict:
+    """Planes per mask column, and how many of the ragged ones took the bulk read."""
+    out: dict[str, dict] = {}
+    for rec in mask_log:
+        src = rec.get("source") or "none"
+        slot = out.setdefault(src, {"planes": 0, "bulk_read": 0, "per_roi_read": 0})
+        slot["planes"] += 1
+        slot["bulk_read" if rec.get("bulk_read") else "per_roi_read"] += 1
+    return out
+
+
 def build_provenance(*, asset_name: str, stamp: str, mouse_label: str, config: MetricConfig, seed: int,
                      input_asset: Path, sessions: pd.DataFrame, inventory: pd.DataFrame,
                      planes: pd.DataFrame, wide: pd.DataFrame, wall_seconds: float,
                      session_filter, failures: list, write_errors: list,
                      window_centers: dict, center_read_failures: list,
                      wide_name: str, manifest: dict, arrays: list,
-                     layout: Optional[dict] = None) -> dict:
+                     layout: Optional[dict] = None, timing: Optional[dict] = None,
+                     mask_log: Optional[list] = None) -> dict:
     """The asset's own provenance record.
 
     Built separately from writing it so its contents can be checked without a run --
@@ -476,6 +518,13 @@ def build_provenance(*, asset_name: str, stamp: str, mouse_label: str, config: M
         "input_asset": str(input_asset),
         "n_sessions": int(len(sessions)), "n_planes": int(len(planes)),
         "n_rois": int(len(wide)), "wall_seconds": round(wall_seconds, 1),
+        # Where the time went, and which mask read path each plane took. Without these
+        # a slow run cannot be diagnosed after the fact, and a silent fallback to the
+        # per-ROI mask read looks identical to the fast path.
+        "stage_seconds": {k: round(float(v), 1)
+                          for k, v in sorted((timing or {}).items(),
+                                             key=lambda kv: -kv[1])},
+        "mask_reads": _mask_read_summary(mask_log or []),
         "session_filter": list(session_filter) if session_filter else None,
         "complete_asset": bool(session_filter is None and not failures
                                and not write_errors),
@@ -562,6 +611,9 @@ def run(input_asset: Path, results_dir: Path, asset_prefix: str = "V1DD_function
     n_rois = check_roi_coverage(tables)
     print(f"\n{len(planes)} planes, {n_rois} ROIs, {wall_seconds / 60:.1f} min",
           flush=True)
+    for name, secs in sorted(acc.timing.items(), key=lambda kv: -kv[1]):
+        print(f"    {name:<28} {secs:>7.1f}s  {secs / wall_seconds:>5.1%}", flush=True)
+    print(f"    mask reads: {_mask_read_summary(acc.mask_log)}", flush=True)
 
     wide, manifest = build_wide(tables)
     wide_path = save_dir / "stimulus_metrics.parquet"
@@ -589,7 +641,7 @@ def run(input_asset: Path, results_dir: Path, asset_prefix: str = "V1DD_function
         write_errors=write_errors, window_centers=wc,
         center_read_failures=center_read_failures,
         wide_name=wide_path.name, manifest=manifest, arrays=arrays,
-        layout=layout)
+        layout=layout, timing=acc.timing, mask_log=acc.mask_log)
     with open(save_dir / "provenance.json", "w", encoding="utf-8") as fh:
         json.dump(prov.jsonable(record), fh, indent=2, sort_keys=True, allow_nan=False)
         fh.write("\n")

@@ -85,3 +85,15 @@ and no session filter was applied.
 `failed_outputs` lists any array archive that could not be written. The writers are
 guarded individually because provenance is written *after* them, and an unguarded raise
 once cost a five-hour run its record of everything else.
+
+Two fields make a run's cost readable after the fact. `stage_seconds` totals wall time per
+family across every plane, alongside `load_traces` and `load_masks`; `wall_seconds` is the
+whole session loop, so the stages sum to slightly less than it. `mask_reads` counts planes
+by mask column and, for the ragged `pixel_mask` form, how many took the bulk read against
+the per-ROI fallback — the fallback is automatic and otherwise silent, so without this a
+run that fell back looks exactly like one that did not.
+
+Both exist because a runtime claim made from log lines alone was wrong in both directions:
+a per-session timer was compared against a whole-run timer, and the asset was then
+extrapolated from its second-largest session. Numbers meant to be compared belong in the
+record, measured the same way.

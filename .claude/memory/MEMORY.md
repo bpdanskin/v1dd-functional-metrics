@@ -12,4 +12,6 @@
 - [The RF threshold is a knife edge](rf-threshold-is-a-knife-edge.md) — 0.25 is exactly 11/44, so 17% of ROIs have a pixel on the boundary and their centres are unstable.
 - [Two anomalous sessions](two-anomalous-sessions.md) — col4/vol1 and col2/vol5 account for nearly every exception; provenance to chase upstream.
 - [The column layout is one-dimensional](column-layout-is-one-dimensional.md) — column 1 is the centre, but the apertures constrain azimuth only; two anatomical frames ship side by side.
+- [Reference materials](reference-materials.md) — where the white paper, the de Vries paper and the fork's notebooks live, and what each is good for.
+- [Measuring runtime](measuring-runtime.md) — two wrong wall-clock claims, the three timers that got confused, and where the real numbers now live.
 - [Queued: events vs dF/F study](queued-events-vs-dff-study.md) — after P5/P6; includes the discovery that our trace choice is inverted relative to the white paper's methods.
