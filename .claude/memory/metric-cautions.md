@@ -43,14 +43,8 @@ per-family pages under `docs/`, not in comments.
 * **Depth is a lattice**: `50 + 96*(volume-1) + 16*plane`, spanning 50-514 um, 30 distinct
   depths. Useful as a sanity check on any session-identity change.
 
-## Working notes still embedded in code (scrub in P5)
+## Working notes — scrubbed in P5
 
-`stimulus_metrics.py` and its family modules still carry inline rationale from the fork --
-context, decisions and cautions that belong in `docs/`, not in comments. `responses.py`,
-`nwb.py` and `paths.py` were scrubbed in P1, with their content moved to
-`docs/pipeline.md` and `docs/data_access.md`.
-
-**In P5, once each family page exists, do a final pass over the family modules**: move
-anything explanatory into the matching `docs/families/*.md`, drop resolved questions, and
-leave only a docstring saying what the function does and how its arguments differ. Do not
-delete a note without first checking its content has a home.
+All six family modules scrubbed 2026-09-05. Explanatory docstrings and inline rationale
+moved to `docs/families/*.md`; each function now carries only what it does and how its
+arguments differ. `responses.py`, `nwb.py` and `paths.py` were scrubbed earlier in P1.

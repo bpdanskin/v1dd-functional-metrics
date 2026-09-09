@@ -25,24 +25,8 @@ def natural_movie_metrics(
 ) -> pd.DataFrame:
     """Natural-movie metrics: one row per ROI.
 
-    Every movie frame is a "trial" and every pass through the movie a "repeat". Note the
-    response window spans ~3 imaging frames ≈ 0.49 s while movie frames are 1/30 s apart,
-    so consecutive "trials" overlap heavily and are strongly autocorrelated. That is the
-    original's design; it means `lifetime_sparseness` over 3,600 x 9 such values is not
-    measuring what its name suggests.
-
-    A sharper consequence, worth knowing before interpreting `pref_img`: because the
-    window looks *forward* from each frame's onset, activity driven by frame f lands
-    inside the windows of frames f-15 … f. The reported preferred frame can therefore
-    **precede** the frame that actually drove the response by up to half a second, and
-    among those overlapping windows the argmax is decided partly by how many imaging
-    samples each happens to contain. Treat `pref_img` as locating a ~0.5 s neighbourhood,
-    not a frame.
-
-    `frac_responsive_trials` here is **not** a statistical test — it is the fraction of
-    repeats whose mean response at the preferred frame is strictly greater than zero. No
-    bootstrap is involved, which makes this the one fully deterministic end-to-end check
-    against the published table.
+    Each movie frame is a condition and each pass through the movie a repeat.
+    ``frac_responsive_trials`` is deterministic (fraction with response > 0, no bootstrap).
     """
     if not len(trials):
         return absent_frame(plane, "natural_movie", mouse)

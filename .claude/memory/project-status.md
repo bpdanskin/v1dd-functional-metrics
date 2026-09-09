@@ -1,6 +1,6 @@
 ---
 name: project-status
-description: "Where the refactor stands as of 2026-09-05: P0-P4 and roi_position done and capsule-verified over four runs; P5 documentation is next. Includes the retracted runtime regression."
+description: "Where the refactor stands as of 2026-09-05: P0-P4 done, roi_position done, P5 doc pages and code scrub done. Example notebooks and P6 full run remain."
 metadata:
   node_type: memory
   type: project
@@ -215,9 +215,10 @@ Two smaller defects found by reading the sidecar rather than the log:
 
 ## What remains, in the order it should happen
 
-1. **P5 documentation.** Six family pages remain (`roi_position` is written), plus the
-   working-notes scrub recorded in [[metric-cautions]], example notebooks, and figures
-   built from the local 2026-09-03 asset.
+1. **P5 documentation — pages and scrub done.** All seven family pages written
+   (2026-09-05). Working-notes scrub of all six family modules complete — docstrings
+   trimmed to what/how, rationale moved to `docs/families/*.md`. **Remaining P5 items:**
+   example notebooks and figures from the local 2026-09-03 asset.
 2. **P6 capsule run** -- the full asset, against the checklist in
    [[array-replay-validates-offline]]. **Budget ~5.5 h**, not the 9.1 h this note
    previously claimed. Check `stage_seconds` afterwards: the inherited claim that

@@ -16,16 +16,8 @@ from ..schema import absent_frame, roi_frame
 def _rf_pixel_to_degrees(mean_idx, centers: np.ndarray, scale_bug: bool) -> np.ndarray:
     """Map a fractional pixel index to degrees of visual angle.
 
-    Two mappings, because the original's is wrong and the published table carries the
-    wrong one. `point_to_alt_azi` divides the centre-to-centre *range*
-    (`centers[-1] - centers[0]`, which spans `n - 1` pixel pitches) by `len(centers)`,
-    so its effective pitch is `(n-1)/n` of the real one. With 8 altitude rows that
-    compresses the map by 12.5 %, and with 14 azimuth columns by 7.1 %: a centroid on the
-    last pixel comes out at 28.48 deg instead of 32.55, and 56.13 instead of 60.45.
-
-    Reproducing the published numbers means reproducing that, so it is the default.
-    `scale_bug=False` gives the correct mapping, which is simply interpolation into the
-    real pixel centres.
+    ``scale_bug=True`` reproduces the historical compressed scale (range/n instead of
+    range/(n-1)); ``False`` gives the correct interpolation.
     """
     mean_idx = np.asarray(mean_idx, dtype=np.float64)
     if scale_bug:
@@ -45,29 +37,12 @@ def receptive_field_metrics(
     rng: Optional[np.random.Generator] = None,
     mouse: Optional[str] = None,
 ) -> pd.DataFrame:
-    """Receptive fields from the locally-sparse-noise stimulus.
+    """ON/OFF subfield maps and centres from the locally-sparse-noise stimulus.
 
-    The odd one out in three ways, all of which the original does deliberately:
-
-    * **dF/F, not deconvolved events**, and the only family with a *subtracted* baseline
-      (the 1 s before onset). Every other family uses events with no baseline at all.
-    * **No trial array.** Instead a design matrix records which pixels were bright and
-      which dark on each sweep, and the map is the fraction of a pixel's presentations
-      that produced a significant response.
-    * **No GLM.** The published README describes "a GLM framework"; there is no
-      regression anywhere in `locally_sparse_noise.py`. It builds the design matrix and
-      then uses it purely as a counting indicator. Do not go looking for the model.
-
-    Significance is per-ROI: a sweep counts if its response exceeds the 95th percentile
-    of that ROI's bootstrapped spontaneous responses. Pixel fractions below
-    `rf_frac_thresh` are zeroed, so "has a receptive field" reduces to "at least one
-    pixel survived", and the centre is the **unweighted** centroid of the surviving pixel
-    indices — the fractions are not used as weights.
-
-    `lsn` is the dict from `v1dd_nwb.load_lsn_template`. Its `pixel_on` / `pixel_off` are
-    read from the template rather than hard-coded: this asset encodes the stimulus as
-    -1 / 0 / 1 where the original assumed 0 / 127 / 255, and hard-coding those would make
-    both design matrices all-False and report zero receptive fields for every ROI.
+    Uses dF/F with a 1 s baseline subtraction. ``lsn`` is the dict from
+    ``load_lsn_template``; its ``pixel_on``/``pixel_off`` determine the design matrix.
+    Returns ``(metrics, rf_map)`` where ``rf_map`` is the continuous pre-threshold map
+    ``(n_rois, 2, n_rows, n_cols)`` in float32.
     """
     images = np.asarray(lsn["images"])
     n_rows, n_cols = images.shape[1], images.shape[2]
@@ -117,10 +92,7 @@ def receptive_field_metrics(
         frac = (design.astype(np.int64) @ significant).T / np.where(
             n_pixel_trials > 0, n_pixel_trials, np.nan)
     frac = np.nan_to_num(frac, nan=0.0)
-    frac[~plane.is_valid] = 0.0   # blank = excluded (not "no RF"), documented in rf_map
-    # continuous pre-threshold map: (n_rois, 2, n_rows, n_cols) float32.
-    # Graded values before zeroing sub-threshold pixels; recoverable to post-threshold
-    # in one line, but the reverse is not. Saved alongside the per-ROI metrics.
+    frac[~plane.is_valid] = 0.0
     rf_map = frac.reshape(plane.n_rois, 2, n_rows, n_cols).astype(np.float32).copy()
     frac[frac < config.rf_frac_thresh] = 0.0
     rf = frac.reshape(plane.n_rois, 2, n_rows, n_cols)          # dim 1: 0 = ON, 1 = OFF

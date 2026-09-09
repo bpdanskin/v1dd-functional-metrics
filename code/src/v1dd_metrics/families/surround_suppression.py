@@ -31,24 +31,11 @@ def surround_suppression_metrics(
     center: Optional[Sequence[float]] = None,
     center_inferred: bool = False,
 ) -> pd.DataFrame:
-    """Eight surround-suppression indices, all of the form (W - F) / (W + F).
+    """Eight SSI variants, all ``(W - F) / (W + F)`` at the windowed preferred condition.
 
-    W is the windowed (small-patch) response and F the full-field response. The
-    **reference condition is always the windowed stimulus's preferred (direction, SF)**;
-    the full-field response is sampled at that same condition, never at its own preferred
-    one. ROIs whose preferred condition is -1 stay NaN.
-
-    Running and stationary trials split at exactly 1 cm/s with **strict** inequalities on
-    both sides, so a trial at exactly 1.0 belongs to neither. `ssi_running` and
-    `ssi_stationary` additionally require at least three qualifying trials in *both*
-    stimuli; the `*_avg_at_pref_sf` variants have no such minimum.
-
-    `containment` is the frame from `window_containment`, spliced in so the schema stays
-    owned here. It is passed in rather than computed here on purpose: it is a function of
-    the receptive-field map and the aperture position, and has nothing to do with the SSI
-    arithmetic. Computing it inside would make this family depend on locally sparse noise,
-    so a session missing that stimulus would take surround suppression down with it.
-    Omit it and the columns are NaN, which is what an absent LSN family should produce.
+    ``containment`` splices in the RF-containment frame from ``window_containment``;
+    omit it and those columns are NaN. ``center`` overrides the session's recorded
+    aperture position (used for imputed centres). ``center_inferred`` flags the rows.
     """
     n_rois = plane.n_rois
     out = {m: np.full(n_rois, np.nan) for m in SSI_COLUMNS}
@@ -88,8 +75,6 @@ def surround_suppression_metrics(
         wp, fp = dgw.tuning_params[roi, si], dgf.tuning_params[roi, si]
         if np.isfinite(wp).all() and np.isfinite(fp).all():
             d0 = vonmises_pref_dir(wp)
-            # Evaluated the same way the peak was selected: baseline-subtracted, unless
-            # ssi_tuning_fit_includes_baseline restores the historical inconsistency.
             off_w = 0.0 if config.ssi_tuning_fit_includes_baseline else float(wp[-1])
             off_f = 0.0 if config.ssi_tuning_fit_includes_baseline else float(fp[-1])
             out["ssi_tuning_fit"][roi] = _metric_index(
@@ -99,15 +84,9 @@ def surround_suppression_metrics(
     frame = roi_frame(plane, mouse=mouse)
     for k, v in out.items():
         frame[k] = v
-    # grating-aperture centre carried through so consumers can filter by RF containment.
-    # `center` overrides what this session recorded, which is how an imputed centre gets
-    # in; `dgw.center` stays the source of truth when nothing is passed, so the override
-    # cannot be applied by accident.
     az, el = dgw.center if center is None else (float(center[0]), float(center[1]))
     frame["dgw_center_azimuth"] = np.full(n_rois, az)
     frame["dgw_center_elevation"] = np.full(n_rois, el)
-    # Per-ROI rather than in provenance alone: whoever filters on RF containment is
-    # reading a row, and a row imputed from its column median has to be able to say so.
     frame["dgw_center_inferred"] = np.full(n_rois, bool(center_inferred), dtype=bool)
     for c in CONTAINMENT_COLUMNS:
         if containment is None:
@@ -125,16 +104,10 @@ CONTAINMENT_COLUMNS = ["dgw_rf_distance_on", "dgw_rf_distance_off",
 
 
 def _window_coverage(azimuths, altitudes, center, radius: float, sub: int = 8):
-    """Fraction of each stimulus pixel's **area** inside the aperture disc.
+    """Fraction of each stimulus pixel's area inside the aperture disc.
 
-    Depends only on the window position, so one array serves every ROI in a session.
-
-    A pixel-centre-inside-the-disc test is not good enough here and the numbers say why:
-    the pixels are 9.3 degrees, the aperture is 30, so the disc spans about 3.2 pixels
-    while covering roughly 8 pixels' worth of area. Whether a centre test counts 5 pixels
-    or 9 then depends on how the disc happens to land on the grid — a swing of about
-    40 %. Sub-sampling each pixel on a `sub` x `sub` grid removes that: at sub=8 the
-    recovered area is within ~1 % of pi*r^2, which the unit tests assert.
+    Returns ``(n_rows, n_cols)`` coverage, or ``None`` if the centre is non-finite.
+    ``sub`` controls sub-pixel sampling resolution.
     """
     az = np.asarray(azimuths, dtype=np.float64)
     alt = np.asarray(altitudes, dtype=np.float64)
@@ -142,8 +115,6 @@ def _window_coverage(azimuths, altitudes, center, radius: float, sub: int = 8):
     if not (np.isfinite(caz) and np.isfinite(cel)):
         return None
 
-    # pitch is read off the grid, never assumed: this asset is 9.3 degrees, but a
-    # different locally-sparse-noise template would silently produce wrong areas.
     def pitch(v, name):
         d = np.diff(v)
         if len(d) and not np.allclose(d, d[0]):
@@ -167,36 +138,12 @@ def window_containment(
     *,
     config: MetricConfig = DEFAULT_CONFIG,
 ) -> pd.DataFrame:
-    """How much of each ROI's receptive field the windowed grating actually covered.
+    """RF-to-aperture distance and overlap for each ROI.
 
-    `ssi` compares a windowed grating response against a full-field one, which only means
-    "surround suppression" if the window covered the cell's receptive field. A cell whose
-    RF sat outside the aperture was barely stimulated, and its weak windowed response
-    reads as suppression when it was a targeting miss.
-
-    Two measures, deliberately, because they disagree about which cells to keep:
-
-    * **`dgw_rf_distance_*`** — degrees from the RF centre to the window centre. The
-      conservative reading, and the one the white paper used. It is also blunt: the
-      centre is an unweighted centroid on a 9.3-degree grid, so one marginal pixel moves
-      it ~4.6 degrees.
-    * **`dgw_rf_overlap_*`** — the fraction of the RF's mass falling inside the aperture,
-      in [0, 1]. More permissive and better behaved: it keeps cells whose field overlaps
-      the window even though the centroid does not, which on this asset is 1,572 cells
-      against 970 at a 0.05 cut.
-
-    The overlap is weighted by the **post-threshold** map. The continuous pre-threshold
-    map is dominated by noise floor — its mean overlap is 0.086 against the 0.073 a
-    uniform random map would give, i.e. it mostly measures the window's share of the
-    screen rather than anything about the cell.
-
-    **Neither is a filter.** On this asset overlap correlates with `ssi` at r = +0.07
-    (n = 6,827) with a non-monotonic profile, so the targeting concern is directionally
-    supported but weak. These columns are reported so a consumer can judge; gating on
-    them would discard most of the data on thin evidence.
-
-    Returns a frame of `CONTAINMENT_COLUMNS`, all NaN where the window position is
-    unknown (two sessions in this asset record none) or the ROI has no field.
+    ``rf_frame`` carries RF centres; ``rf_map`` is ``(n_rois, 2, n_rows, n_cols)``
+    pre-threshold. ``lsn`` supplies the stimulus grid; ``center`` is the aperture
+    ``(azimuth, elevation)``. Returns a frame of ``CONTAINMENT_COLUMNS``, all NaN where
+    the centre is non-finite or the ROI has no field.
     """
     n_rois = len(rf_frame)
     out = {c: np.full(n_rois, np.nan) for c in CONTAINMENT_COLUMNS}

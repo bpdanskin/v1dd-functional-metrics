@@ -19,18 +19,7 @@ from ..schema import roi_frame
 def window_center(trials: pd.DataFrame) -> Tuple[float, float]:
     """The `(azimuth, elevation)` of the grating aperture for one session, or `(nan, nan)`.
 
-    Pass the rows the metrics use — **non-blank sweeps only**. This is factored out of
-    `drifting_gratings_metrics` so that a pre-pass collecting centres across sessions and
-    the production read cannot diverge, which is not hypothetical: `probe_window_center.py`
-    counted these values over *all* trials while the pipeline reads only non-blank ones, so
-    a centre recorded on blank sweeps alone would have read as present and still shipped
-    NaN.
-
-    Takes the first distinct non-NaN value, which is what the historical code did. Not the
-    median or a uniqueness assertion: every session that records a centre records exactly
-    one, and a session that somehow recorded two should not have them silently averaged
-    into a position the stimulus never occupied. `infer_window_centers` reports
-    `n_distinct` so that case is visible rather than absorbed.
+    Pass **non-blank sweeps only**. Takes the first distinct non-NaN value per axis.
     """
     out = []
     for col in ("center_azimuth", "center_elevation"):
@@ -57,31 +46,11 @@ def infer_window_centers(
     *,
     config: MetricConfig = DEFAULT_CONFIG,
 ) -> WindowCenters:
-    """Fill a session's missing aperture centre from the median of its cortical column.
+    """Fill missing aperture centres from the median of the same cortical column.
 
-    Two of the 25 sessions (column 2 / volume 5 and column 4 / volume 1) do not record the
-    windowed-grating aperture position, leaving 2,456 ROIs that cannot be filtered for
-    receptive-field containment. `probe_window_center.py` established (2026-09-03) that
-    the `center_azimuth` / `center_elevation` columns are **absent from those sessions'
-    stimulus tables entirely** — not present-and-NaN, and not lost by our extraction — so
-    there is nothing in the file to recover and imputation is not covering for a bug of
-    ours. Run the probe again before trusting this on a different asset; had it returned
-    "values exist but we lose them", filling in would have buried that.
-
-    **The median of the donors, not "the column's value".** The position is fixed per
-    column by design — the window was placed on each column's population receptive field —
-    but column 2 / volume 2 sits 0.2 deg off the rest of its column, so it was re-entered
-    per session rather than shared by construction. A median tolerates that; asserting
-    equality would fail on real data.
-
-    Azimuth and elevation are imputed together and a session donates only if it has both.
-    Half a centre positions nothing, and mixing a measured azimuth with an inferred
-    elevation would make `dgw_center_inferred` unanswerable for that row.
-
-    A column with no donors is left NaN rather than filled from another column: the whole
-    justification is that the column's own sessions agree, and across columns they do not.
-    `provenance["columns"]` records that as `n_donors: 0`, so it reads as a gap rather than
-    as a success.
+    ``observed`` maps ``(column, volume)`` to ``(azimuth, elevation)``; sessions with NaN
+    in either axis are candidates for imputation. A session donates only if it has both
+    axes, and a column with no donors is left NaN. Controlled by ``config.impute_dgw_center``.
     """
     by_column: Dict[int, list] = {}
     for key in observed:
@@ -130,9 +99,6 @@ def infer_window_centers(
             "donor_volumes": [str(d[0][1]) for d in donors],
             "median_azimuth": med[0] if len(donors) else None,
             "median_elevation": med[1] if len(donors) else None,
-            # Spread across donors, which is what says whether a median is meaningful.
-            # Column 2 shows 0.2 here; a column showing degrees would mean the
-            # fixed-per-column premise is wrong for it and the fill is not justified.
             "spread_azimuth": float(np.ptp(az_vals)) if len(donors) else None,
             "spread_elevation": float(np.ptp(el_vals)) if len(donors) else None,
             "n_distinct_azimuth": int(len(np.unique(az_vals))) if len(donors) else 0,
@@ -143,10 +109,6 @@ def infer_window_centers(
     prov = {
         "enabled": bool(config.impute_dgw_center),
         "n_sessions": len(observed),
-        # Three disjoint states, and they must sum to n_sessions: a session's centre was
-        # recorded, or it was filled from its column, or nothing could fill it. Counting
-        # "measured" as merely not-inferred lumps the third case into the first and
-        # reports a session that has no centre at all as one that has its own.
         "n_measured": int(sum(1 for k, v in inferred.items()
                               if not v and np.isfinite(centers[k][0]))),
         "n_inferred": int(sum(1 for v in inferred.values() if v)),
@@ -254,14 +216,11 @@ def dg_metrics_from_trials(
     fit_sf_index: Optional[np.ndarray] = None,
     config: MetricConfig = DEFAULT_CONFIG,
 ) -> dict:
-    """Grating metrics computable from the trial array alone.
+    """Grating metrics from the trial array; responsiveness excluded (needs the trace).
 
-    ``ta`` is (n_rois, n_dir, n_sf, n_trials) and NaN-padded; ``is_valid`` marks ROIs that
-    passed segmentation. ``fit_sf_index`` gives a per-ROI spatial-frequency index to fit,
-    skipping the others, or None to fit every one.
-
-    Returns a dict of per-ROI arrays plus ``pref_cond_index`` and ``tuning_params``.
-    Responsiveness is excluded because it needs the continuous trace; the caller adds it.
+    ``ta`` is ``(n_rois, n_dir, n_sf, n_trials)``, NaN-padded. ``is_valid`` marks ROIs
+    that passed segmentation. ``fit_sf_index`` selects one SF to fit per ROI, or ``None``
+    for all.
     """
     import warnings
 
@@ -299,9 +258,6 @@ def dg_metrics_from_trials(
     dsi = _ratio(pref - null_r, pref + null_r, zero_to_nan=zn)
 
     theta = np.deg2rad(dir_list.astype(float))
-    # gosi normalises with a NaN-propagating sum; pref_dir_mean treats NaN as zero.
-    # Neither rectifies the tuning curve, which is only safe on a non-negative trace --
-    # see docs/families/drifting_gratings.md before pointing trace_type at dff.
     L_norm = tuning.sum(axis=1)
     L_ori = tuning @ np.exp(2j * theta)
     with np.errstate(invalid="ignore", divide="ignore"):
@@ -369,17 +325,11 @@ def drifting_gratings_metrics(
     rng: Optional[np.random.Generator] = None,
     mouse: Optional[str] = None,
 ) -> "DGResult":
-    """Drifting-gratings metrics for one plane.
+    """Drifting-gratings metrics for one plane. Returns a ``DGResult``.
 
-    `dg_type` is "full" or "windowed". The computation is identical for both; surround
-    suppression is what compares them.
-
-    Two preferred conditions are computed, deliberately. `preferred_dir`/`preferred_sf` in
-    the published table come from an argmax over `fillna(-1)` responses, while the
-    selectivity indices come from a NaN-skipping argmax with no fill. They disagree only
-    for ROIs whose condition means are NaN. Both are kept, and a divergence warns, because
-    surround suppression keys off the first and `osi`/`dsi` off the second -- a silent
-    divergence would corrupt SSI without touching any drifting-gratings column.
+    ``dg_type`` is ``"full"`` or ``"windowed"``; the computation is identical.
+    ``fit_sf_index`` selects one SF to fit per ROI (windowed uses its own preferred SF
+    by default). ``running`` is ``(speed_array, running_timestamps)`` or ``None``.
     """
     if not len(trials):
         raise ValueError(
