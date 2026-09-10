@@ -14,6 +14,6 @@
 - [The column layout is one-dimensional](column-layout-is-one-dimensional.md) — column 1 is the centre, but the apertures constrain azimuth only; two anatomical frames ship side by side.
 - [Reference materials](reference-materials.md) — where the white paper, the de Vries paper and the fork's notebooks live, and what each is good for.
 - [Measuring runtime](measuring-runtime.md) — two wrong wall-clock claims, the three timers that got confused, and where the real numbers now live.
-- [Queued: events vs dF/F study](queued-events-vs-dff-study.md) — after P5/P6; includes the discovery that our trace choice is inverted relative to the white paper's methods.
+- [Events vs dF/F study (done)](queued-events-vs-dff-study.md) — completed 2026-09-09; L0 detects 1 AP at ~4% regardless of rate; docs/events_vs_dff.md has per-metric trace recommendations.
 - [Data explorer artifact](data-explorer-artifact.md) — 39,407-ROI 3D Plotly scatter with wireframe boxes, hide-null, anatomical labels. Published and in docs/.
 - [Queued: NI stimulus images](queued-ni-stimulus-images.md) — next capsule run: extract 118+12 natural images from NWB, save as NPZ for quick reference.

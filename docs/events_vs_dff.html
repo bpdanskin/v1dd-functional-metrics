@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.9.38">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+
+<title>events_vs_dff</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+</style>
+
+
+<script src="events_vs_dff_files/libs/clipboard/clipboard.min.js"></script>
+<script src="events_vs_dff_files/libs/quarto-html/quarto.js" type="module"></script>
+<script src="events_vs_dff_files/libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="events_vs_dff_files/libs/quarto-html/popper.min.js"></script>
+<script src="events_vs_dff_files/libs/quarto-html/tippy.umd.min.js"></script>
+<script src="events_vs_dff_files/libs/quarto-html/anchor.min.js"></script>
+<link href="events_vs_dff_files/libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="events_vs_dff_files/libs/quarto-html/quarto-syntax-highlighting-15634bcf2e68342d4ad2dfa704d543f6.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="events_vs_dff_files/libs/bootstrap/bootstrap.min.js"></script>
+<link href="events_vs_dff_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="events_vs_dff_files/libs/bootstrap/bootstrap-efbb37e9afcc02144ebbc7afd12a776f.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+
+
+</head>
+
+<body class="fullcontent quarto-light">
+
+<div id="quarto-content" class="page-columns page-rows-contents page-layout-article">
+
+<main class="content" id="quarto-document-content">
+
+
+
+
+<section id="events-vs-dff" class="level1">
+<h1>Events vs dF/F</h1>
+<p>V1DD images each plane at <strong>6 Hz</strong>. The L0 event inference algorithm (Jewell &amp; Witten 2018) was validated at 30 Hz. This page records what we know about event quality at 6 Hz, which trace type each metric family uses, and the evidence behind each choice.</p>
+<section id="the-trace-type-inversion" class="level2">
+<h2 class="anchored" data-anchor-id="the-trace-type-inversion">The trace-type inversion</h2>
+<p>The V1DD white paper says:</p>
+<blockquote class="blockquote">
+<p>Except the receptive field mapping, all the other analysis is performed using the df/f traces. For the receptive field mapping, events detected by L0-penalized algorithm are used to achieve a more accurate estimation of receptive field.</p>
+</blockquote>
+<p><code>MetricConfig.trace_type</code> does the opposite:</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>family</th>
+<th>pipeline</th>
+<th>white paper</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>drifting gratings (full and windowed)</td>
+<td>events</td>
+<td>dF/F</td>
+</tr>
+<tr class="even">
+<td>natural images (118 and 12)</td>
+<td>events</td>
+<td>dF/F</td>
+</tr>
+<tr class="odd">
+<td>natural movie</td>
+<td>events</td>
+<td>dF/F</td>
+</tr>
+<tr class="even">
+<td>locally sparse noise (receptive fields)</td>
+<td>dF/F</td>
+<td>events</td>
+</tr>
+</tbody>
+</table>
+<p>This was inherited from <code>allen_v1dd</code>; the fork recorded it as a fact about the original code, not a deliberate divergence. Either the paper’s methods section does not describe the code that produced its figures, or the code diverged later. This pipeline keeps the inherited assignment and documents it here.</p>
+<p>The evidence below shows that neither “events everywhere” nor “dF/F everywhere” is correct. Ratio and sparseness metrics require a non-negative trace; correlations and reliability may be better on dF/F. The assignment is per-family, as it should be.</p>
+</section>
+<section id="how-well-does-l0-work-at-6-hz" class="level2">
+<h2 class="anchored" data-anchor-id="how-well-does-l0-work-at-6-hz">How well does L0 work at 6 Hz?</h2>
+<section id="ground-truth-simulation" class="level3">
+<h3 class="anchored" data-anchor-id="ground-truth-simulation">Ground truth simulation</h3>
+<p>10 Emx1-s neurons (GCaMP6s, the same indicator as V1DD’s Ai94 line) from Huang et al.&nbsp;2021, each with simultaneous cell-attached electrophysiology. Native fluorescence at ~158 Hz was downsampled to 30 Hz and 6 Hz, and OASIS AR(1) deconvolution was run at each rate with automatic gamma and lambda estimation. Detection probability measured at 1% false positive rate:</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>APs per bin</th>
+<th>158 Hz</th>
+<th>30 Hz</th>
+<th>6 Hz</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>1</td>
+<td>0.050</td>
+<td>0.039</td>
+<td>0.037</td>
+</tr>
+<tr class="even">
+<td>2</td>
+<td>0.056</td>
+<td>0.127</td>
+<td>0.135</td>
+</tr>
+<tr class="odd">
+<td>3</td>
+<td>—</td>
+<td>0.051</td>
+<td>0.211</td>
+</tr>
+</tbody>
+</table>
+<p>At 6 Hz each bin spans 167 ms, so multi-spike events are common and contribute more signal. Single-spike detection is ~4% at all three rates.</p>
+<p><strong>Sampling rate is not the bottleneck.</strong> This confirms Huang et al.’s finding: blind spike inference is limited by SNR and the algorithm, not temporal resolution. Going from 30 Hz to 6 Hz does not substantially degrade detection. But the absolute numbers are low — L0 at any rate detects only one in 25 isolated action potentials. Events should be understood as <strong>burst detectors</strong> at V1DD’s operating point.</p>
+</section>
+<section id="what-the-elife-paper-found-at-30-hz-for-comparison" class="level3">
+<h3 class="anchored" data-anchor-id="what-the-elife-paper-found-at-30-hz-for-comparison">What the eLife paper found at 30 Hz (for comparison)</h3>
+<p>Huang et al.&nbsp;2021 tested three blind algorithms (NND, L0, MLspike) on the same neurons downsampled to 30 Hz. At 1% false positive rate, detection probability was commonly &lt;0.1 for 1 AP across all mouse lines, increasing approximately linearly to ~0.8 for 5 APs. Performance was “similar across mouse lines, with only modest differences between algorithms.” Our simulation numbers are consistent with this.</p>
+<p>Ground-truth-optimized detection (using known spike times to tune thresholds) performed much better — 0.32 for 1 AP in GCaMP6s at 30 Hz — but that scenario does not apply to V1DD, where spike times are unknown.</p>
+</section>
+<section id="v1dd-calcium-indicator" class="level3">
+<h3 class="anchored" data-anchor-id="v1dd-calcium-indicator">V1DD calcium indicator</h3>
+<p>V1DD mice are Slc17a7-IRES2-Cre;Camk2a-tTA;Ai94(TITL-GCaMP6s). The relevant ground truth comparison is Huang et al.’s Emx1-s line (also Ai94, also GCaMP6s, same layer), which is what the simulation above uses.</p>
+</section>
+<section id="caveats-on-the-simulation" class="level3">
+<h3 class="anchored" data-anchor-id="caveats-on-the-simulation">Caveats on the simulation</h3>
+<ul>
+<li>OASIS implements L1-penalized deconvolution (Friedrich &amp; Paninski 2016), not the exact L0 of Jewell &amp; Witten 2018. The eLife paper found all three algorithms performed similarly, so the difference is likely small.</li>
+<li>Lambda was estimated automatically from the noise level of each trace. The LIMS pipeline uses per-Cre-line parameters derived from paired optical/ephys data, which may perform differently.</li>
+<li>10 neurons is a small sample. The non-monotonic detection at high AP counts (4 AP &lt; 3 AP at 6 Hz) reflects noise from small bin counts.</li>
+</ul>
+<p>Source: <code>scratchpad/simulate_6hz.py</code>, data from <code>s3://allen-paper-supplements/huang_published_2021/processed_data/Emx1-s_highzoom/</code>.</p>
+</section>
+</section>
+<section id="diagnostics-from-the-v1dd-asset" class="level2">
+<h2 class="anchored" data-anchor-id="diagnostics-from-the-v1dd-asset">Diagnostics from the V1DD asset</h2>
+<p>39,407 ROIs across 25 sessions, 150 planes.</p>
+<section id="spontaneous-event-rate" class="level3">
+<h3 class="anchored" data-anchor-id="spontaneous-event-rate">Spontaneous event rate</h3>
+<p><code>spont_rate</code> is the mean L0 event amplitude per frame during spontaneous activity — not a firing rate in Hz. Median 0.000591, spanning [0.000159, 0.026760]. No ROI has exactly zero. The distribution is approximately log-normal (median log10 ≈ −3.2).</p>
+</section>
+<section id="depth-dependence" class="level3">
+<h3 class="anchored" data-anchor-id="depth-dependence">Depth dependence</h3>
+<p>Both event rate and SNR decline with depth: r(depth, spont_rate) = −0.14, r(depth, SNR) = −0.07. The co-decline is the expected pattern for 2P imaging — signal weakens deeper, and events track that. The diagnostic red flag would be event rate flat while SNR varies (suggesting events detect noise uniformly); that is not what we see.</p>
+</section>
+<section id="snr-vs-event-rate" class="level3">
+<h3 class="anchored" data-anchor-id="snr-vs-event-rate">SNR vs event rate</h3>
+<p>Pearson r = 0.35, Spearman rho = 0.14. The bottom-quartile-SNR median event rate is 0.000572; the top-quartile is 0.000658 (ratio 1.15). Most ROIs cluster in a narrow SNR range (1.5–4), limiting the dynamic range of this comparison. High-SNR outliers (SNR &gt; 10) have clearly elevated event rates, confirming the correlation is real but weak.</p>
+</section>
+<section id="reliability-events-vs-dff" class="level3">
+<h3 class="anchored" data-anchor-id="reliability-events-vs-dff">Reliability: events vs dF/F</h3>
+<p>Three families ship both <code>*_reliability</code> (from events) and <code>*_reliability_dff</code> (from dF/F):</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>family</th>
+<th>Pearson r</th>
+<th>sign disagree</th>
+<th>events &lt; dF/F</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>natural images (118)</td>
+<td>0.779</td>
+<td>24.0%</td>
+<td>89%</td>
+</tr>
+<tr class="even">
+<td>natural images (12)</td>
+<td>0.883</td>
+<td>27.0%</td>
+<td>78%</td>
+</tr>
+<tr class="odd">
+<td>natural movie</td>
+<td>0.961</td>
+<td>6.9%</td>
+<td>58%</td>
+</tr>
+</tbody>
+</table>
+<p>Events-based reliability is systematically lower than dF/F and compressed toward zero. The sign disagreement for natural images means roughly a quarter of ROIs switch from “positively reliable” to “negatively reliable” (or vice versa) depending on the trace type.</p>
+<p>The natural movie’s better agreement likely comes from its longer response window: 3 imaging frames vs 2 for natural images. With 2 frames, a missed event on one frame halves the trial’s response, dominating the correlation across trials.</p>
+<p>Source: <code>scratchpad/event_diagnostics.py</code>.</p>
+</section>
+</section>
+<section id="which-trace-each-metric-should-use-and-why" class="level2">
+<h2 class="anchored" data-anchor-id="which-trace-each-metric-should-use-and-why">Which trace each metric should use, and why</h2>
+<section id="metrics-that-require-events-non-negative-trace" class="level3">
+<h3 class="anchored" data-anchor-id="metrics-that-require-events-non-negative-trace">Metrics that require events (non-negative trace)</h3>
+<p><strong>Ratio indices: OSI, DSI, GOSI, run_mod_*.</strong> <code>(a − b) / (a + b)</code> on a signed trace is unbounded when the denominator passes through zero and inverts sign when both terms are negative. A suppressed cell that is less suppressed during running scores negative <code>run_mod</code> — a sign flip that makes the metric answer a different question. Events, being non-negative, eliminate this. The formula’s valid range on events is [−1, 1]; on signed dF/F it is (−∞, +∞).</p>
+<p><strong>Lifetime sparseness.</strong> The Vinje &amp; Gallant form assumes non-negative responses. On signed data, negative terms violate the formula’s derivation and can push the result outside [0, 1]. See <a href="comparability.md">comparability.md</a> for the condition-mean convention.</p>
+<p><strong>Preferred response amplitudes.</strong> <code>ni_pref_response</code>, <code>nm_pref_response</code>, and <code>dgw_pref_dir_mean_response</code> are most interpretable as non-negative magnitudes. A negative preferred response on dF/F means the neuron’s strongest response is a suppression, which is valid but changes the interpretation of downstream uses (e.g.&nbsp;the binomial test on <code>frac_responsive_trials</code>).</p>
+</section>
+<section id="metrics-that-could-use-dff" class="level3">
+<h3 class="anchored" data-anchor-id="metrics-that-could-use-dff">Metrics that could use dF/F</h3>
+<p><strong>Reliability</strong> (correlation between trial repeats). The reliability comparison above shows dF/F gives systematically higher values with a 0.78–0.96 correlation to events-based reliability. Since reliability is a Pearson correlation — no denominator, no ratio — it is mathematically safe on a signed trace. dF/F may actually be more informative here: events’ zero-inflation (from missed single spikes) adds trial-to-trial variance that is detector noise rather than neural variability.</p>
+<p><strong>SNR, signal_power, noise_power.</strong> These are spectral measures of the dF/F trace and are already computed from dF/F regardless of the <code>trace_type</code> setting.</p>
+<p><strong>run_corr_dff.</strong> Already computed from dF/F. A correlation has no denominator, so the sign instability that makes <code>run_mod_*</code> events-only does not apply.</p>
+</section>
+<section id="metrics-where-the-choice-matters-less" class="level3">
+<h3 class="anchored" data-anchor-id="metrics-where-the-choice-matters-less">Metrics where the choice matters less</h3>
+<p><strong>Receptive fields.</strong> The white paper specifies events for RF mapping. The pipeline uses dF/F. The RF maps are thresholded binary fields at a coarse 9.3° grid, so the trace choice affects the amplitude of the response at each position but not the spatial pattern above threshold. On the other hand, the white paper’s reasoning — that events give “a more accurate estimation of receptive field” — is plausible because L0’s sparsity penalty rejects small fluctuations that might produce false RF pixels.</p>
+<p><strong>Responsiveness fractions.</strong> <code>frac_responsive_trials</code> depends on the trace type through the bootstrap test, but the threshold (<code>dg_frac_thresh = 0.50</code>) was calibrated against the white paper’s headline responsiveness rate and moving to dF/F would change that calibration without new evidence.</p>
+</section>
+</section>
+<section id="the-zero-inflation-problem" class="level2">
+<h2 class="anchored" data-anchor-id="the-zero-inflation-problem">The zero-inflation problem</h2>
+<p>At 6 Hz with 2-frame response windows, the median fraction of natural images eliciting exactly zero response per ROI is <strong>63%</strong>. This is where the burst-detection characteristic of L0 intersects the stimulus design: a neuron that fires 1–2 spikes to an image has a ~96% chance of that event being missed per frame, so across 2 frames the probability of detecting at least one event is roughly 1 − 0.96² ≈ 8%. The remaining 92% of presentations register as zero.</p>
+<p>This makes ratio metrics fragile (a near-zero denominator from sparse responses), sparseness values high (most of the response vector is structural zeros from the detector, not biological selectivity), and trial-to-trial correlations noisy (events add binomial detection noise on top of neural variability).</p>
+<p>The 63% zero rate is not implausible as biology — V1 neurons are selective and many images fall outside a cell’s receptive field — but the ground truth simulation shows it is at least partly detector artefact. The natural movie, with a 3-frame window and continuous temporal structure, has much less zero-inflation and correspondingly better events-vs-dF/F agreement (7% sign disagreement vs 24%).</p>
+</section>
+<section id="summary-table" class="level2">
+<h2 class="anchored" data-anchor-id="summary-table">Summary table</h2>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>metric family</th>
+<th>trace used</th>
+<th>trace recommended</th>
+<th>reason</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>OSI, DSI, GOSI</td>
+<td>events</td>
+<td><strong>events</strong></td>
+<td>ratio index, unbounded on signed trace</td>
+</tr>
+<tr class="even">
+<td>lifetime sparseness</td>
+<td>events</td>
+<td><strong>events</strong></td>
+<td>formula requires non-negative inputs</td>
+</tr>
+<tr class="odd">
+<td>run_mod_*</td>
+<td>events</td>
+<td><strong>events</strong></td>
+<td>ratio index</td>
+</tr>
+<tr class="even">
+<td>preferred response</td>
+<td>events</td>
+<td><strong>events</strong></td>
+<td>interpretability as magnitude</td>
+</tr>
+<tr class="odd">
+<td>reliability</td>
+<td>events</td>
+<td><strong>either</strong></td>
+<td>dF/F gives higher values, no ratio</td>
+</tr>
+<tr class="even">
+<td>SNR / spectral</td>
+<td>dF/F</td>
+<td><strong>dF/F</strong></td>
+<td>defined on fluorescence trace</td>
+</tr>
+<tr class="odd">
+<td>run_corr_dff</td>
+<td>dF/F</td>
+<td><strong>dF/F</strong></td>
+<td>correlation, no denominator</td>
+</tr>
+<tr class="even">
+<td>receptive fields</td>
+<td>dF/F</td>
+<td><strong>either</strong></td>
+<td>white paper says events; see text</td>
+</tr>
+<tr class="odd">
+<td>responsiveness</td>
+<td>events</td>
+<td><strong>events</strong></td>
+<td>calibrated threshold</td>
+</tr>
+</tbody>
+</table>
+<p>No change to <code>MetricConfig.trace_type</code> is recommended. The current assignment — events for everything except RF — is defensible for the metrics that require non-negative inputs. The reliability comparison shows that events-based reliability is systematically lower but correlated, and the dF/F version is already shipped alongside it for users who prefer it.</p>
+</section>
+<section id="references" class="level2">
+<h2 class="anchored" data-anchor-id="references">References</h2>
+<ul>
+<li>Huang, Ledochowitsch et al.&nbsp;(2021). Relationship between simultaneously recorded spiking activity and fluorescence signal in GCaMP6 transgenic mice. <em>eLife</em> 10:e51675.</li>
+<li>Jewell &amp; Witten (2018). Exact spike train inference via l0 optimization. <em>Annals of Applied Statistics</em> 12(4):2457–2482.</li>
+<li>Friedrich &amp; Paninski (2016). Fast active set methods for online spike inference from calcium imaging. <em>NIPS</em>.</li>
+<li>de Vries, Lecoq, Buice et al.&nbsp;(2020). A large-scale standardized physiological survey reveals functional organization of the mouse visual cortex. <em>Nature Neuroscience</em> 23:138–151.</li>
+<li>Abbasi-Asl et al.&nbsp;(2019). V1DD white paper v6.</li>
+</ul>
+</section>
+</section>
+
+</main>
+<!-- /main column -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+
+
+
+
+</body></html>

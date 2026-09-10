@@ -4,6 +4,7 @@
 - [Reading the NWB sessions](data_access.md) -- storage formats, session identity, traps
 - [Outputs](outputs.md) -- the asset layout
 - [Comparability](comparability.md) -- versus earlier results
+- [Events vs dF/F](events_vs_dff.md) -- L0 event quality at 6 Hz, per-metric trace choice
 
 ## Notebooks
 

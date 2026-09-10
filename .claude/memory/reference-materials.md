@@ -14,7 +14,7 @@ Not in the repo -- shared from the user's OneDrive.
 |---|---|
 | `V1DD_WhitePaper_v6.pdf` | The dataset description. Imaging geometry is in the text (page 5); the column layout is only in Figures 2 and 3, which are images and extract as no text. Methods section states a dF/F-vs-events choice **opposite** to ours -- see [[queued-events-vs-dff-study]]. |
 | `Jewell_Witten_2018.pdf` | *Exact spike train inference via l0 optimization*. The algorithm behind our `events` trace. |
-| `elife-51675-v3.pdf` | Huang et al. 2021, simultaneous spikes and GCaMP6 fluorescence. Ground truth for judging event inference. |
+| `elife-51675-v3.pdf` | Huang et al. 2021, simultaneous spikes and GCaMP6 fluorescence. Ground truth for judging event inference. Data now at `s3://allen-paper-supplements/huang_published_2021/` (old portal URL returns 404). Web page: `https://brain-map.org/our-research/circuits-behavior/ophys-ephys-calibration-data`. 91 neurons, processed HDF5 with `f_cell`, `spk`, `iSpk`, `dto`, `dte`. |
 | `de Vries Lecoq Buice 2019.pdf` + supplement | The 30 Hz Brain Observatory comparison; source of the agreement figures in docs/comparability.md. |
 | `workshop2 - extended version.ipynb` | An independent derivation of grating tuning; corroborates the 1,038 low-confidence ROIs via `is_soma == False`. |
 

@@ -1,11 +1,24 @@
 ---
 name: queued-events-vs-dff-study
-description: "Queued for after P5/P6: a systematic events-vs-dF/F comparison per metric, and quality checks on L0 event inference at 6 Hz. Includes a discovered inversion between our trace choice and the white paper's stated methods."
+description: "Completed 2026-09-09. Events-vs-dF/F study with ground truth simulation at 6 Hz. Written up as docs/events_vs_dff.md. Key finding: sampling rate is not the bottleneck for L0; single-spike detection is ~4% regardless of rate."
 metadata:
   node_type: memory
   type: project
-  modified: 2026-09-05
+  modified: 2026-09-09
 ---
+
+**Completed 2026-09-09.** Deliverable: [`docs/events_vs_dff.md`](../../docs/events_vs_dff.md).
+
+Key findings:
+- L0 at 6 Hz detects single APs at ~4%, same as at 30 Hz and 158 Hz — sampling rate is not the bottleneck (SNR and algorithm are)
+- Events-based reliability is systematically lower than dF/F (r=0.78–0.96, sign disagreement 7–27%)
+- Ratio and sparseness metrics require events (non-negative); reliability and correlations are safe on dF/F
+- No change to `MetricConfig.trace_type` recommended; the inversion relative to the white paper is documented
+- Ground truth simulation used 10 Emx1-s neurons from Huang et al. 2021 oephys data (now at `s3://allen-paper-supplements/huang_published_2021/`)
+
+---
+
+*Original request below retained for context.*
 
 Requested 2026-09-05, **to start after P5 and P6 have produced a working pipeline and a
 full asset.** Two parts: which metrics should be computed from deconvolved events and
