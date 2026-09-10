@@ -39,15 +39,41 @@ def main():
     # --- load stimulus images from the first session's NWB ---
     data_dir = args.data_dir or pathlib.Path("/data")
     sessions, _ = discover_sessions(str(data_dir))
-    nwbfile, io = vn.open_session(sessions.iloc[0]["path"])
-    try:
-        ni_images, ni_frames = vn._images_to_array(nwbfile.stimulus["natural_images"])
-        print(f"Natural images: {ni_images.shape} (indices {ni_frames[0]}..{ni_frames[-1]})")
 
-        nm_images, nm_frames = vn._images_to_array(nwbfile.stimulus["natural_movie"])
-        print(f"Natural movie frames: {nm_images.shape}")
-    finally:
-        io.close()
+    # --- verify image identity is consistent across sessions ---
+    ni_images = None
+    ni_frames = None
+    nm_images = None
+    n_checked = 0
+    print(f"Checking image identity across {len(sessions)} sessions...")
+    for si, (_, sess_row) in enumerate(sessions.iterrows()):
+        nwbfile, io = vn.open_session(sess_row["path"])
+        try:
+            imgs, frames = vn._images_to_array(nwbfile.stimulus["natural_images"])
+            if ni_images is None:
+                ni_images = imgs
+                ni_frames = frames
+                nm_images, _ = vn._images_to_array(nwbfile.stimulus["natural_movie"])
+                print(f"  Session 1 ({sess_row['name']}): {imgs.shape}, "
+                      f"indices {frames[0]}..{frames[-1]}")
+            else:
+                if frames != ni_frames:
+                    print(f"  !! Session {si+1} ({sess_row['name']}): "
+                          f"DIFFERENT image indices: {frames[:5]}... vs {ni_frames[:5]}...")
+                elif imgs.shape != ni_images.shape:
+                    print(f"  !! Session {si+1}: shape mismatch "
+                          f"{imgs.shape} vs {ni_images.shape}")
+                elif not np.array_equal(imgs, ni_images):
+                    diff_count = (imgs != ni_images).any(axis=tuple(range(1, imgs.ndim))).sum()
+                    print(f"  !! Session {si+1}: {diff_count} of {len(imgs)} images "
+                          f"differ in pixel content")
+                else:
+                    n_checked += 1
+        finally:
+            io.close()
+    print(f"  {n_checked + 1} sessions checked: "
+          f"{'ALL IDENTICAL' if n_checked == len(sessions) - 1 else 'DIFFERENCES FOUND'}")
+    print(f"Natural images: {ni_images.shape} (indices {ni_frames[0]}..{ni_frames[-1]})")
 
     # --- load population responses from the asset ---
     if args.asset_dir:
