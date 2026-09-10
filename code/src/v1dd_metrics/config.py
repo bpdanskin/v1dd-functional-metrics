@@ -63,13 +63,14 @@ class MetricConfig:
     #: Natural-images response window as a FIXED number of imaging samples from each
     #: onset. When set (the default), `ni_response_seconds` is ignored.
     #:
-    #: Two samples, because that is what the 0.33 s window was doing on the sessions it
-    #: was tuned against — but expressed in the units the intent actually lives in, so it
-    #: cannot drift with the sampling rate. A time window varies with onset phase; a
-    #: frame count does not. Since per-trial rescaling changes the relative pattern across
-    #: images, scale-invariant metrics like `lifetime_sparseness` can tell the two apart,
-    #: which is how the discrepancy was found in the first place.
-    ni_response_frames: Optional[int] = 2
+    #: Three samples (~0.5 s at 6 Hz), matching the natural movie window. The historical
+    #: value was 2 (recovered from the 0.33 s time window). At 2 frames, L0 event
+    #: detection at ~4% per frame per AP gives P(detect in window) ≈ 8%, producing 63%
+    #: zero-inflation in the condition means. At 3 frames the detection window rises to
+    #: ~12% and the zero-inflation, reliability, and events-vs-dF/F agreement all improve
+    #: — the natural movie (already at 3 frames) shows 7% reliability sign disagreement
+    #: vs 24% for natural images at 2 frames.
+    ni_response_frames: Optional[int] = 3
     #: Natural-movie and LSN windows are counted in *imaging* frames, so they depend on
     #: the plane's own sampling period rather than on the stimulus.
     nm_response_frames: int = 3

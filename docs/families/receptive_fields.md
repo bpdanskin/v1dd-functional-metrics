@@ -21,9 +21,11 @@ deliberate:
 ## How the map is built
 
 1. **Sweep responses.** Each locally-sparse-noise frame onset is a sweep. The response is
-   `mean(dF/F in [onset, onset + 4*dt])` minus `mean(dF/F in [onset - 1s, onset])`, where
-   `dt` is the plane's imaging period. The baseline subtraction matters: without it, a
-   neuron with a high sustained rate lights up everywhere.
+   `mean(trace in [onset, onset + 4*dt])` minus `mean(trace in [onset - 1s, onset])`,
+   where `dt` is the plane's imaging period. When the trace type is events, baseline
+   subtraction is skipped (L0 output is already denoised and non-negative). The baseline
+   subtraction matters for dF/F: without it, a neuron with a high sustained rate lights up
+   everywhere.
 
 2. **Spontaneous null.** 10,000 bootstrap draws from the spontaneous block, same window,
    same baseline subtraction. The 95th percentile of this distribution is the per-ROI
@@ -44,6 +46,30 @@ deliberate:
 6. **Centre.** The **unweighted** centroid of the surviving pixel indices, mapped to
    degrees by interpolation into the stimulus grid's known positions. The post-threshold
    fractions are not used as weights.
+
+## Response window smearing at 6 Hz
+
+The response window is `lsn_response_frames` imaging samples (default 4). The
+locally-sparse-noise stimulus presents a new pattern every ~250 ms. At 30 Hz, 4 frames =
+133 ms — comfortably within one stimulus presentation. At 6 Hz, 4 frames = 660 ms —
+**spanning 2.6 consecutive stimulus presentations**. Each sweep response therefore averages
+neural activity driven by the target stimulus *and the next two patterns*.
+
+Because consecutive LSN frames are spatially uncorrelated by design, the contamination acts
+as noise: it raises the response floor at non-RF pixels and reduces contrast between true
+RF pixels and background. This contributes to the 95 % fragmentation rate and the
+prevalence of single-pixel fields.
+
+| frames | window (6 Hz) | LSN presentations spanned | notes |
+|---|---|---|---|
+| 1 | ~165 ms | 0.66 | within one stimulus; may miss calcium peak |
+| 2 | ~330 ms | 1.32 | captures most of GCaMP6s transient; ~30% next-stimulus contamination |
+| 4 | ~660 ms | 2.64 | current default; substantial smearing |
+
+The 4-frame default was inherited from the 30 Hz pipeline and never adjusted for 6 Hz.
+Whether reducing it improves maps is under evaluation — see
+`code/validation/rf_trace_comparison.py`, which compares detection rate and contiguity
+across 1, 2, and 4 frames with both dF/F and events.
 
 ## The threshold is a knife edge
 

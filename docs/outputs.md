@@ -32,9 +32,9 @@ already name the stimulus keep an empty prefix.
 | `drifting_gratings_full` | `dgf_` | 9 | `dsi`, `frac_responsive_trials`, `gosi`, `is_responsive`, `lifetime_sparseness`, `osi`, `preferred_dir`, `preferred_sf`, `pref_dir_mean` |
 | `drifting_gratings_windowed` | `dgw_` | 9 | the same nine |
 | `surround_suppression` | — | 15 | `ssi`, `ssi_avg`, `ssi_avg_at_pref_sf`, `ssi_running`, `ssi_running_avg_at_pref_sf`, `ssi_stationary`, `ssi_stationary_avg_at_pref_sf`, `ssi_tuning_fit`, `dgw_center_azimuth`, `dgw_center_elevation`, `dgw_center_inferred`, `dgw_rf_distance_on`, `dgw_rf_distance_off`, `dgw_rf_overlap_on`, `dgw_rf_overlap_off` |
-| `natural_images` | `ni_` | 7 | `frac_responsive_trials`, `lifetime_sparseness`, `pref_img`, `pref_response`, `z_score`, `reliability`, `reliability_dff` |
-| `natural_images_12` | `ni12_` | 7 | the same seven |
-| `natural_movie` | `nm_` | 7 | the same seven, with `pref_img` a frame index |
+| `natural_images` | `ni_` | 9 | `frac_responsive_trials`, `frac_zero_response`, `lifetime_sparseness`, `pref_img`, `pref_response`, `z_score`, `reliability`, `reliability_events`, `n_trials_at_pref` |
+| `natural_images_12` | `ni12_` | 9 | the same nine |
+| `natural_movie` | `nm_` | 9 | the same nine, with `pref_img` a frame index |
 | `rf_metrics` | — | 7 | `has_rf_on`, `has_rf_off`, `has_rf_on_or_off`, `azimuth_rf_on`, `altitude_rf_on`, `azimuth_rf_off`, `altitude_rf_off` |
 | `roi_position` | — | 10 | `roi_x_px`, `roi_y_px`, `roi_area_px`, `roi_radius_px`, `roi_x_um`, `roi_y_um`, and the two anatomical frames `roi_{x,y}_um_published` / `roi_{x,y}_um_retinotopic` — see [roi_position.md](families/roi_position.md) |
 

@@ -18,8 +18,9 @@ OUTPUT_COLUMNS: Dict[str, Sequence[str]] = {
     "natural_images": [
         "roi_unique_id", "mouse", "column", "volume", "plane", "roi", "depth_um",
         "pika_roi_confidence",
-        "frac_responsive_trials", "lifetime_sparseness", "pref_img", "pref_response",
-        "z_score", "reliability", "reliability_dff", "n_trials_at_pref"],
+        "frac_responsive_trials", "frac_zero_response", "lifetime_sparseness",
+        "pref_img", "pref_response",
+        "z_score", "reliability", "reliability_events", "n_trials_at_pref"],
     "surround_suppression": [
         "roi_unique_id", "mouse", "column", "volume", "plane", "roi", "depth_um",
         "pika_roi_confidence",
@@ -141,15 +142,12 @@ def to_output_schema(df: pd.DataFrame, family: str) -> pd.DataFrame:
 
 def _reliability_on(plane, trace_key, starts, codes, *, n_trials, n_conditions,
                     window=None, frames=None):
-    """`trial_reliability` recomputed on a second trace type, or NaN if it is absent.
+    """`trial_reliability` recomputed on a specific trace type, or NaN if absent.
 
-    Reliability is reported twice — once on the trace the family's metrics use (events)
-    and once on dF/F — because the two answer different questions and, on sparse events,
-    disagree substantially. Events are exactly zero most of the time, so a repeat's
-    response vector is mostly flat and its correlation with another repeat rests on a
-    handful of frames; dF/F carries a continuous signal and is what the white paper's
-    Figure 18 reports. Shipping both makes "how reproducible are the events every other
-    metric is built on?" a question the asset can answer.
+    Reliability is reported twice — ``reliability`` on dF/F (the primary, because a
+    correlation is safe on a signed trace and dF/F carries a continuous signal) and
+    ``reliability_events`` on the events trace (the companion, so "how reproducible are
+    the events every other metric is built on?" is answerable from the asset).
 
     Returns NaN for every ROI when `trace_key` is not loaded, so a plane loaded with a
     single trace type still produces a valid frame rather than raising.

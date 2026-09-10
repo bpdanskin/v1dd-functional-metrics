@@ -29,7 +29,7 @@ def test_corrections():
     d, r = DEFAULT_CONFIG, REFERENCE_CONFIG
     check("default rf_center_scale_bug is off", d.rf_center_scale_bug is False)
     check("default pref_cond_fillna is off", d.pref_cond_fillna is False)
-    check("default natural-images window is 2 frames", d.ni_response_frames == 2)
+    check("default natural-images window is 3 frames", d.ni_response_frames == 3)
     check("reference keeps the scale bug", r.rf_center_scale_bug is True)
     check("reference keeps the fillna", r.pref_cond_fillna is True)
     check("reference uses the 0.33 s window", r.ni_response_frames is None

@@ -51,9 +51,12 @@ def receptive_field_metrics(
         empty_map = np.zeros((plane.n_rois, 2, n_rows, n_cols), dtype=np.float32)
         return absent_frame(plane, "rf_metrics", mouse), empty_map
     rng = np.random.default_rng() if rng is None else rng
-    traces = plane.traces[config.trace_type["locally_sparse_noise"]]
+    trace_key = config.trace_type["locally_sparse_noise"]
+    traces = plane.traces[trace_key]
     window = (0.0, config.lsn_response_frames * plane.dt)
-    baseline = (-1.0, 0.0)
+    # Events are non-negative and already denoised by L0's sparsity penalty;
+    # baseline subtraction would make them signed, defeating the advantage.
+    baseline = None if trace_key == "events" else (-1.0, 0.0)
     pixel_on, pixel_off = lsn.get("pixel_on"), lsn.get("pixel_off")
     if pixel_on is None or pixel_off is None:
         raise ValueError(

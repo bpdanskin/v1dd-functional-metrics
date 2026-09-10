@@ -97,7 +97,7 @@ Ai94, also GCaMP6s, same layer), which is what the simulation above uses.
 - 10 neurons is a small sample. The non-monotonic detection at high AP
   counts (4 AP < 3 AP at 6 Hz) reflects noise from small bin counts.
 
-Source: `scratchpad/simulate_6hz.py`, data from
+Source: `code/validation/simulate_6hz.py`, data from
 `s3://allen-paper-supplements/huang_published_2021/processed_data/Emx1-s_highzoom/`.
 
 
@@ -136,8 +136,8 @@ event rates, confirming the correlation is real but weak.
 
 ### Reliability: events vs dF/F
 
-Three families ship both `*_reliability` (from events) and
-`*_reliability_dff` (from dF/F):
+Three families ship both `*_reliability` (from dF/F, the primary) and
+`*_reliability_events` (from events, the companion):
 
 | family | Pearson r | sign disagree | events < dF/F |
 |---|---|---|---|
@@ -157,7 +157,7 @@ across trials.
 
 ![Reliability scatter: events vs dF/F for NI, NI12 and NM, with identity lines and Pearson r](figures/evt_reliability_comparison.png)
 
-Source: `scratchpad/event_diagnostics.py`.
+Source: `code/validation/event_diagnostics.py`.
 
 
 ## Which trace each metric should use, and why
@@ -214,6 +214,17 @@ more accurate estimation of receptive field" — is plausible because
 L0's sparsity penalty rejects small fluctuations that might produce
 false RF pixels.
 
+A separate issue affects RF precision regardless of trace type: the
+response window. The 4-frame default was inherited from 30 Hz, where
+it spans 133 ms — within one 250 ms LSN presentation. At 6 Hz the
+same frame count spans 660 ms = **2.6 consecutive stimulus
+presentations**, smearing each sweep response across spatially
+uncorrelated patterns. This contamination adds noise to the map and
+contributes to the 95% fragmentation rate. Reducing the window to 1–2
+frames is under evaluation alongside the trace-type comparison. See
+[receptive_fields.md](families/receptive_fields.md#response-window-smearing-at-6-hz)
+and `code/validation/rf_trace_comparison.py`.
+
 **Responsiveness fractions.** `frac_responsive_trials` depends on the
 trace type through the bootstrap test, but the threshold
 (`dg_frac_thresh = 0.50`) was calibrated against the white paper's
@@ -253,18 +264,18 @@ better events-vs-dF/F agreement (7% sign disagreement vs 24%).
 | lifetime sparseness | events | **events** | formula requires non-negative inputs |
 | run_mod_* | events | **events** | ratio index |
 | preferred response | events | **events** | interpretability as magnitude |
-| reliability | events | **either** | dF/F gives higher values, no ratio |
+| reliability | **dF/F** | **dF/F** | primary; companion `reliability_events` shipped |
 | SNR / spectral | dF/F | **dF/F** | defined on fluorescence trace |
 | run_corr_dff | dF/F | **dF/F** | correlation, no denominator |
-| receptive fields | dF/F | **either** | white paper says events; see text |
+| receptive fields | dF/F | **testing events + window** | L0 sparsity may reduce fragmentation; 4-frame window smears 2.6 LSN presentations at 6 Hz |
 | responsiveness | events | **events** | calibrated threshold |
 
-No change to `MetricConfig.trace_type` is recommended. The current
-assignment — events for everything except RF — is defensible for the
-metrics that require non-negative inputs. The reliability comparison
-shows that events-based reliability is systematically lower but
-correlated, and the dF/F version is already shipped alongside it for
-users who prefer it.
+Changes made: `reliability` primary switched from events to dF/F (events
+companion shipped as `reliability_events`); NI/NI12 response window
+widened from 2 to 3 frames to reduce zero-inflation; `frac_zero_response`
+added per family to quantify remaining detector-driven zeros; RF
+comparison with events *and* response window width (1, 2, 4 frames) under
+evaluation (see `code/validation/rf_trace_comparison.py`).
 
 
 ## References

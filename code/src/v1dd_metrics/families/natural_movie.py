@@ -74,14 +74,19 @@ def natural_movie_metrics(
     with np.errstate(invalid="ignore", divide="ignore"):
         z_score = (pref_response - null.mean(axis=1)) / null.std(axis=1)
 
+    finite_resp = np.isfinite(mean_resp)
+    n_finite = finite_resp.sum(axis=0)
+    n_zero = ((mean_resp == 0) & finite_resp).sum(axis=0)
+
     out = roi_frame(plane, mouse=mouse)
     out["frac_responsive_trials"] = frac_responsive
+    out["frac_zero_response"] = np.where(n_finite > 0, n_zero / n_finite, np.nan)
     out["lifetime_sparseness"] = _lifetime_sparseness_chunked(
         ta, over=config.lifetime_sparseness_over)
-    out["reliability"] = tr.trial_reliability(ta)
-    out["reliability_dff"] = _reliability_on(
+    out["reliability"] = _reliability_on(
         plane, "dff", starts, frames, n_trials=n_repeats,
         n_conditions=len(frame_ids), window=window)
+    out["reliability_events"] = tr.trial_reliability(ta)
     out["n_trials_at_pref"] = np.where(
         all_nan, np.nan, np.isfinite(pref_trials).sum(axis=1)).astype(float)
     out["pref_img"] = pref_img

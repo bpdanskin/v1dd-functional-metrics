@@ -69,12 +69,12 @@ image selectivity for NI12 (r = −0.005 against the condition-mean form). See
 
 Reported twice:
 
-* **`reliability`** — split-half correlation between repeats, on the trace type the metrics
-  use (deconvolved events). With sparse events this can be low even for strongly responsive
-  cells.
-* **`reliability_dff`** — the same correlation on dF/F, which carries a continuous signal.
-  This is what the white paper's Figure 18 reports. Shipping both makes "how reproducible
-  are the events every other metric is built on?" a question the asset can answer.
+* **`reliability`** — split-half correlation between repeats, on dF/F. A correlation is
+  safe on a signed trace, and dF/F carries a continuous signal (what the white paper's
+  Figure 18 reports). This is the primary.
+* **`reliability_events`** — the same correlation on deconvolved events. With sparse events
+  this can be low even for strongly responsive cells, but it answers "how reproducible are
+  the events every other metric is built on?"
 
 ## `n_trials_at_pref`
 
@@ -111,8 +111,9 @@ When a stimulus is absent, returns `absent_frame` plus `None` for the condition 
 | `pref_img` | preferred image index (from the 118-image catalog), −1 if all-NaN |
 | `pref_response` | mean response to the preferred image |
 | `z_score` | preferred response in SD of the multi-trial spontaneous null |
-| `reliability` | split-half correlation on events |
-| `reliability_dff` | split-half correlation on dF/F |
+| `frac_zero_response` | fraction of conditions with exactly zero mean response |
+| `reliability` | split-half correlation on dF/F (primary) |
+| `reliability_events` | split-half correlation on events (companion) |
 | `n_trials_at_pref` | finite trials at the preferred image |
 
 `natural_images` and `natural_images_12` share this column set. The prefix in the wide
