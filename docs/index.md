@@ -5,6 +5,11 @@
 - [Outputs](outputs.md) -- the asset layout
 - [Comparability](comparability.md) -- versus earlier results
 
+## Notebooks
+
+- [Asset access](notebooks/asset_access.ipynb) -- loading the table and array archives
+- [Example figures](notebooks/example_figures.ipynb) -- population visualizations from the asset
+
 ## Families
 
 - [Roi Position](families/roi_position.md)

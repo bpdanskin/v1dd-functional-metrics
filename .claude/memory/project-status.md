@@ -1,10 +1,9 @@
 ---
 name: project-status
-description: "Where the refactor stands as of 2026-09-05: P0-P4 done, roi_position done, P5 doc pages and code scrub done. Example notebooks and P6 full run remain."
+description: "Where the refactor stands as of 2026-09-09: P0-P6 done, P5 notebooks and explorer complete. Full 25-session run completed (39,407 ROIs, 5.14 h). Optional: quarto site, comparative dF/F-vs-events analysis."
 metadata:
-  node_type: memory
   type: project
-  modified: 2026-09-05
+  modified: 2026-09-09
 ---
 
 Read this first to pick the work up. Detail lives in the notes it points at, and in
@@ -213,25 +212,61 @@ Two smaller defects found by reading the sidecar rather than the log:
   (`check_families_ran`, `check_roi_coverage`) run inside the metrics step and abort it.
   The notes now say what actually happens.
 
-## What remains, in the order it should happen
+## P6 full run — completed 2026-09-09
 
-1. **P5 documentation — pages and scrub done.** All seven family pages written
-   (2026-09-05). Working-notes scrub of all six family modules complete — docstrings
-   trimmed to what/how, rationale moved to `docs/families/*.md`. **Remaining P5 items:**
-   example notebooks and figures from the local 2026-09-03 asset.
-2. **P6 capsule run** -- the full asset, against the checklist in
-   [[array-replay-validates-offline]]. **Budget ~5.5 h**, not the 9.1 h this note
-   previously claimed. Check `stage_seconds` afterwards: the inherited claim that
-   drifting gratings is ~96 % of runtime has never been measured in this repo, and the
-   asset now records the answer.
-3. **Confirm `mask_reads` on the full run.** 23 sessions should report `pixel_mask` with
-   `bulk_read` on every plane and `per_roi_read: 0`; the two in
-   [[two-anomalous-sessions]] should report `image_mask`. A non-zero `per_roi_read` means
-   the flat form failed its checks somewhere and is worth knowing about.
+`code/run` on `9f9af4a`, full 25-session run. **All checks passed.**
+
+| quantity | expected | actual |
+|---|---|---|
+| sessions | 25 | 25 |
+| planes | 150 | 150 |
+| ROIs | 39,407 | 39,407 |
+| columns (wide table) | 95 | 95 |
+| complete_asset | true | true |
+| failed_sessions | [] | [] |
+| failed_outputs | [] | [] |
+| wall_seconds | ~5.4 h | 5.14 h (18,522 s) |
+| mask_reads: pixel_mask | 23 sessions bulk | 138 planes bulk, 0 per_roi_read |
+| mask_reads: image_mask | 2 sessions | 12 planes (col2/vol5 + col4/vol1) |
+| aperture imputation | 2 inferred | 2 inferred (col2/vol5, col4/vol1) |
+| column_layout | populated | populated (um_per_degree=17.58) |
+
+**`stage_seconds` — first measurement of family runtime breakdown:**
+
+| stage | seconds | % of wall |
+|---|---|---|
+| drifting_gratings_windowed | 6,471 | 34.9% |
+| drifting_gratings_full | 6,148 | 33.2% |
+| load_traces | 1,332 | 7.2% |
+| natural_movie | 360 | 1.9% |
+| natural_images_12 | 292 | 1.6% |
+| natural_images | 106 | 0.6% |
+| roi_summary | 67 | 0.4% |
+| receptive_fields | 65 | 0.4% |
+| load_masks | 20 | 0.1% |
+| surround_suppression | 9 | <0.1% |
+| roi_position | 0.5 | <0.1% |
+
+Gratings are **68 %** of wall time, not the ~96 % the fork claimed. The gap is load_traces
+(7.2 %) and natural_movie/ni12 (3.5 %), which the fork did not measure separately.
+
+Asset: `results/409828_V1DD_functional_metrics_2026-09-09_01-41-33/`
+
+## P5 — completed 2026-09-09
+
+All seven family doc pages, four infrastructure docs, and two example notebooks
+delivered. See [[data-explorer-artifact]] for the interactive explorer.
+
+- `docs/notebooks/asset_access.ipynb` — loading the parquet, NPZ archives, provenance
+- `docs/notebooks/example_figures.ipynb` — population selectivity, tuning curves, RF maps,
+  depth profiles, retinotopic gradient, image selectivity, running modulation
+- `docs/v1dd_explorer.html` — 39,407-ROI 3D Plotly scatter (also published as artifact)
+
+## What remains
 
 The pipeline itself is **done and verified end to end** on both mask formats, both a
-normal and an anomalous session, and in five environment shapes. Nothing outstanding
-blocks P5.
+normal and an anomalous session, and in five environment shapes. P5 documentation is
+complete.
 
 ## Open questions that are not ours to answer
 
