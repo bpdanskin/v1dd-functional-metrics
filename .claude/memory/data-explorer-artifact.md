@@ -36,5 +36,12 @@ Plotly.js 2.27.0 loaded from cdnjs CDN (artifact CSP).
 
 - Column offsets use azimuth scale (14.95 µm/°) for both X and Y axes
 - Left hemisphere confirmed (de Vries 2019: monitor at right eye, craniotomy over contralateral left V1)
-- X increasing = medial→lateral, Y increasing = anterior→posterior (microscope orientation assumed consistent)
 - Z axis [530, 30] reversed (depth increases downward)
+
+**Axis labels corrected 2026-09-09** via coregistration sanity check against EM data
+(v1169, 564 matched ROIs, affine fit r > 0.997 all axes):
+- **X: low = lateral, high = medial** (was medial/lateral — swapped per user's EM convention: left hemisphere, increasing EM_X = lateral→medial)
+- **Y: low = posterior, high = anterior** (was anterior/posterior — swapped; EM_Z post→ant increasing maps to +2P_Y)
+- **Depth: pia/wm confirmed correct** (EM_Y pia→wm maps to +2P_depth)
+
+**Why:** The user stated EM convention for left hemisphere: if increasing Z = posterior→anterior, then increasing X = lateral→medial. The Z convention is the user's assumption to verify offline — both X and Y corrections depend on it. See [[column-layout-is-one-dimensional]].
