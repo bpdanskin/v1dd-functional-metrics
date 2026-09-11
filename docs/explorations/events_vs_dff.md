@@ -152,10 +152,10 @@ toward zero. The sign disagreement for natural images means roughly a
 quarter of ROIs switch from "positively reliable" to "negatively reliable"
 (or vice versa) depending on the trace type.
 
-The natural movie's better agreement likely comes from its longer response
-window: 3 imaging frames vs 2 for natural images. With 2 frames, a missed
-event on one frame halves the trial's response, dominating the correlation
-across trials.
+The natural movie's better agreement likely reflects its continuous temporal
+structure. (These numbers were measured when natural images used a 2-frame
+window; NI has since been widened to 3 frames to match the natural movie.
+The 24% sign disagreement at 2 frames motivated that change.)
 
 ![Reliability scatter: events vs dF/F for NI, NI12 and NM, with identity lines and Pearson r](../figures/evt_reliability_comparison.png)
 
@@ -230,26 +230,28 @@ calibration without new evidence.
 
 ## The zero-inflation problem
 
-At 6 Hz with 2-frame response windows, the median fraction of natural
-images eliciting exactly zero response per ROI is **63%**. This is where
-the burst-detection characteristic of L0 intersects the stimulus design:
+At 6 Hz with the historical 2-frame response window, the median fraction of
+natural images eliciting exactly zero response per ROI was **63%**. This is
+where the burst-detection characteristic of L0 intersects the stimulus design:
 a neuron that fires 1–2 spikes to an image has a ~96% chance of that
 event being missed per frame, so across 2 frames the probability of
 detecting at least one event is roughly 1 − 0.96² ≈ 8%. The remaining
 92% of presentations register as zero.
 
-This makes ratio metrics fragile (a near-zero denominator from sparse
-responses), sparseness values high (most of the response vector is
+Widening the NI window to 3 frames (the current default, matching the
+natural movie) raises the per-trial detection probability to ~12% and
+reduces the zero-inflation rate to a median of **49%** (`ni_frac_zero_response`
+in the 2026-09-10 asset). The improvement motivated the change.
+
+Zero-inflation makes ratio metrics fragile (a near-zero denominator from
+sparse responses), sparseness values high (most of the response vector is
 structural zeros from the detector, not biological selectivity), and
 trial-to-trial correlations noisy (events add binomial detection noise
 on top of neural variability).
 
-The 63% zero rate is not implausible as biology — V1 neurons are
+The remaining 49% zero rate is not implausible as biology — V1 neurons are
 selective and many images fall outside a cell's receptive field — but
-the ground truth simulation shows it is at least partly detector
-artefact. The natural movie, with a 3-frame window and continuous
-temporal structure, has much less zero-inflation and correspondingly
-better events-vs-dF/F agreement (7% sign disagreement vs 24%).
+the ground truth simulation shows it is at least partly detector artefact.
 
 
 ## Summary table

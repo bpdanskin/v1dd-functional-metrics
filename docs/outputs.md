@@ -28,7 +28,7 @@ already name the stimulus keep an empty prefix.
 
 | family | prefix | n | columns |
 |---|---|---|---|
-| `roi_summary` | — | 11 | `snr`, `signal_power`, `noise_power`, `run_frac`, `spont_run_frac`, `spont_rate`, `spont_rate_run`, `spont_rate_stat`, `run_mod_dgf`, `run_mod_dgw`, `run_mod_spont` |
+| `roi_summary` | — | 12 | `snr`, `signal_power`, `noise_power`, `run_frac`, `spont_run_frac`, `spont_rate`, `spont_rate_run`, `spont_rate_stat`, `run_mod_dgf`, `run_mod_dgw`, `run_mod_spont`, `run_corr_dff` |
 | `drifting_gratings_full` | `dgf_` | 9 | `dsi`, `frac_responsive_trials`, `gosi`, `is_responsive`, `lifetime_sparseness`, `osi`, `preferred_dir`, `preferred_sf`, `pref_dir_mean` |
 | `drifting_gratings_windowed` | `dgw_` | 9 | the same nine |
 | `surround_suppression` | — | 15 | `ssi`, `ssi_avg`, `ssi_avg_at_pref_sf`, `ssi_running`, `ssi_running_avg_at_pref_sf`, `ssi_stationary`, `ssi_stationary_avg_at_pref_sf`, `ssi_tuning_fit`, `dgw_center_azimuth`, `dgw_center_elevation`, `dgw_center_inferred`, `dgw_rf_distance_on`, `dgw_rf_distance_off`, `dgw_rf_overlap_on`, `dgw_rf_overlap_off` |

@@ -15,9 +15,10 @@ selective it is across the image set. Two sets run in the same sessions:
 
 ## The response window
 
-`ni_response_frames = 2` — a fixed count of imaging samples after each onset. The original
-took the window from an NWB `duration_sec` attribute the current files no longer carry, so
-it was **recovered empirically**: scanning against the published table gives a sharp
+`ni_response_frames = 3` — a fixed count of imaging samples after each onset, matching the
+natural movie window. At 6 Hz this is ~0.5 s. The historical value was 2, which the original
+took the window from an NWB `duration_sec` attribute the current files no longer carry; that
+value was **recovered empirically**: scanning against the published table gives a sharp
 optimum at 0.33 s (median |diff| in lifetime_sparseness = 1e-16, i.e. exact), while 0.30 s
 gives 6e-3 and 0.35 s gives 2e-3.
 
@@ -93,6 +94,29 @@ not 0–11, and the array carries those ids so the images can be identified.
 This is the only neuron-by-condition matrix for the natural stimuli in the asset. The
 published columns are all reductions of it; keeping it is what makes population-level
 analysis (e.g. representational similarity) possible at all.
+
+## Stimulus images and population response
+
+The 118 natural images are stored in each session's NWB file under
+`stimulus["natural_images"]`, keyed by integer index (0–117). Image identity is
+**pixel-identical across all 25 sessions** — verified by `code/validation/extract_ni_images.py`.
+The NI12 subset draws from the same catalog; its `image_index` values are a sparse subset
+of 0–117.
+
+Images are 1024 × 1365 grayscale. The most activating images are high-contrast scenes with
+strong edges — animals on contrasting backgrounds, branching patterns, flowers. The least
+activating are low-contrast, texturally uniform scenes with less local contrast for oriented
+simple cells to respond to.
+
+![Natural images ranked by population mean response, with per-image preference counts](../figures/ni_preferred_images.png)
+
+Population mean response ranges 2.6× from the least to the most activating image
+(0.66e-3 to 1.68e-3). Preferences are broadly distributed: the most-preferred image
+(img 88) is preferred by 887 of 39,407 ROIs, and the top 10 preferred images account for
+only 17% of the population.
+
+Source: `code/validation/extract_ni_images.py`. Pixel data saved to
+`data/ni_stimulus_images.npz`.
 
 ## How the pipeline runs it
 
