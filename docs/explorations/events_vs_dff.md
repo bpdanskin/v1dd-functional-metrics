@@ -5,7 +5,7 @@ V1DD images each plane at **6 Hz**. The L0 event inference algorithm
 we know about event quality at 6 Hz, which trace type each metric
 family uses, and the evidence behind each choice.
 
-## The trace-type inversion
+## The trace-type inversion (now partially resolved)
 
 The V1DD white paper says:
 
@@ -14,20 +14,22 @@ The V1DD white paper says:
 > by L0-penalized algorithm are used to achieve a more accurate estimation
 > of receptive field.
 
-`MetricConfig.trace_type` does the opposite:
+The `allen_v1dd` code did the opposite for every family. This pipeline
+inherits the non-RF assignments (events for gratings, NI, NM — justified
+below) and **restores events for receptive fields**, matching the white
+paper:
 
-| family | pipeline | white paper |
-|---|---|---|
-| drifting gratings (full and windowed) | events | dF/F |
-| natural images (118 and 12) | events | dF/F |
-| natural movie | events | dF/F |
-| locally sparse noise (receptive fields) | dF/F | events |
+| family | pipeline | white paper | allen_v1dd |
+|---|---|---|---|
+| drifting gratings (full and windowed) | events | dF/F | events |
+| natural images (118 and 12) | events | dF/F | events |
+| natural movie | events | dF/F | events |
+| locally sparse noise (receptive fields) | **events** | events | dF/F |
 
-This was inherited from `allen_v1dd`; the fork recorded it as a fact about
-the original code, not a deliberate divergence. Either the paper's methods
-section does not describe the code that produced its figures, or the code
-diverged later. This pipeline keeps the inherited assignment and documents
-it here.
+The non-RF inversion was inherited from `allen_v1dd`; either the paper's
+methods section does not describe the code that produced its figures, or
+the code diverged later. The evidence below shows events is correct for
+ratio and sparseness metrics regardless of what the paper intended.
 
 The evidence below shows that neither "events everywhere" nor "dF/F
 everywhere" is correct. Ratio and sparseness metrics require a non-negative
@@ -51,7 +53,7 @@ estimation. Detection probability measured at 1% false positive rate:
 | 2 | 0.056 | 0.127 | 0.135 |
 | 3 | — | 0.051 | 0.211 |
 
-![Detection probability by AP count at 158, 30 and 6 Hz](figures/evt_detection_vs_ap_count.png)
+![Detection probability by AP count at 158, 30 and 6 Hz](../figures/evt_detection_vs_ap_count.png)
 
 At 6 Hz each bin spans 167 ms, so multi-spike events are common and
 contribute more signal. Single-spike detection is ~4% at all three rates.
@@ -63,9 +65,9 @@ degrade detection. But the absolute numbers are low — L0 at any rate
 detects only one in 25 isolated action potentials. Events should be
 understood as **burst detectors** at V1DD's operating point.
 
-![ROC curves (0–5% FP) at 158, 30 and 6 Hz; individual neurons and mean](figures/evt_roc_curves.png)
+![ROC curves (0–5% FP) at 158, 30 and 6 Hz; individual neurons and mean](../figures/evt_roc_curves.png)
 
-![Example neuron 102436 (1.85 Hz firing rate) at 158, 30 and 6 Hz: dF/F, denoised calcium, inferred events and true spikes](figures/evt_example_traces.png)
+![Example neuron 102436 (1.85 Hz firing rate) at 158, 30 and 6 Hz: dF/F, denoised calcium, inferred events and true spikes](../figures/evt_example_traces.png)
 
 ### What the eLife paper found at 30 Hz (for comparison)
 
@@ -112,7 +114,7 @@ activity — not a firing rate in Hz. Median 0.000591, spanning
 [0.000159, 0.026760]. No ROI has exactly zero. The distribution is
 approximately log-normal (median log10 ≈ −3.2).
 
-![Spontaneous event rate distribution (linear and log scale)](figures/evt_spont_rate_distribution.png)
+![Spontaneous event rate distribution (linear and log scale)](../figures/evt_spont_rate_distribution.png)
 
 ### Depth dependence
 
@@ -122,7 +124,7 @@ imaging — signal weakens deeper, and events track that. The diagnostic
 red flag would be event rate flat while SNR varies (suggesting events
 detect noise uniformly); that is not what we see.
 
-![Spontaneous event rate and SNR vs cortical depth, with IQR bands and ROI count histogram](figures/evt_depth_dependence.png)
+![Spontaneous event rate and SNR vs cortical depth, with IQR bands and ROI count histogram](../figures/evt_depth_dependence.png)
 
 ### SNR vs event rate
 
@@ -132,7 +134,7 @@ ROIs cluster in a narrow SNR range (1.5–4), limiting the dynamic range
 of this comparison. High-SNR outliers (SNR > 10) have clearly elevated
 event rates, confirming the correlation is real but weak.
 
-![SNR vs spontaneous event rate: scatter with binned medians](figures/evt_snr_vs_event_rate.png)
+![SNR vs spontaneous event rate: scatter with binned medians](../figures/evt_snr_vs_event_rate.png)
 
 ### Reliability: events vs dF/F
 
@@ -155,7 +157,7 @@ window: 3 imaging frames vs 2 for natural images. With 2 frames, a missed
 event on one frame halves the trial's response, dominating the correlation
 across trials.
 
-![Reliability scatter: events vs dF/F for NI, NI12 and NM, with identity lines and Pearson r](figures/evt_reliability_comparison.png)
+![Reliability scatter: events vs dF/F for NI, NI12 and NM, with identity lines and Pearson r](../figures/evt_reliability_comparison.png)
 
 Source: `code/validation/event_diagnostics.py`.
 
@@ -175,7 +177,7 @@ non-negative, eliminate this. The formula's valid range on events is
 **Lifetime sparseness.** The Vinje & Gallant form assumes non-negative
 responses. On signed data, negative terms violate the formula's
 derivation and can push the result outside [0, 1]. See
-[comparability.md](comparability.md) for the condition-mean convention.
+[comparability.md](../comparability.md) for the condition-mean convention.
 
 **Preferred response amplitudes.** `ni_pref_response`, `nm_pref_response`,
 and `dgw_pref_dir_mean_response` are most interpretable as non-negative
@@ -206,24 +208,18 @@ does not apply.
 ### Metrics where the choice matters less
 
 **Receptive fields.** The white paper specifies events for RF mapping.
-The pipeline uses dF/F. The RF maps are thresholded binary fields at a
-coarse 9.3° grid, so the trace choice affects the amplitude of the
-response at each position but not the spatial pattern above threshold.
-On the other hand, the white paper's reasoning — that events give "a
-more accurate estimation of receptive field" — is plausible because
-L0's sparsity penalty rejects small fluctuations that might produce
-false RF pixels.
+The pipeline now uses events, matching the white paper. The comparison
+(`code/validation/rf_trace_comparison.py`) showed events produce
+substantially more contiguous fields: 68% single-component at 2 frames
+vs 43% for the prior default of dF/F at 4 frames. L0's sparsity
+penalty rejects small fluctuations that produce false RF pixels on dF/F.
 
-A separate issue affects RF precision regardless of trace type: the
-response window. The 4-frame default was inherited from 30 Hz, where
-it spans 133 ms — within one 250 ms LSN presentation. At 6 Hz the
-same frame count spans 660 ms = **2.6 consecutive stimulus
-presentations**, smearing each sweep response across spatially
-uncorrelated patterns. This contamination adds noise to the map and
-contributes to the 95% fragmentation rate. Reducing the window to 1–2
-frames is under evaluation alongside the trace-type comparison. See
-[receptive_fields.md](families/receptive_fields.md#response-window-smearing-at-6-hz)
-and `code/validation/rf_trace_comparison.py`.
+The response window was also narrowed from 4 to 2 imaging frames. At
+6 Hz, 4 frames = 660 ms = 2.6 consecutive LSN presentations of
+smearing; 2 frames = 328 ms = 1.3 presentations. Detection rate drops
+from ~19% to ~10%, but the lost detections are predominantly fragmented
+scatter. See [explorations/rf_window_and_trace.md](rf_window_and_trace.md)
+for the full comparison.
 
 **Responsiveness fractions.** `frac_responsive_trials` depends on the
 trace type through the bootstrap test, but the threshold
@@ -267,15 +263,16 @@ better events-vs-dF/F agreement (7% sign disagreement vs 24%).
 | reliability | **dF/F** | **dF/F** | primary; companion `reliability_events` shipped |
 | SNR / spectral | dF/F | **dF/F** | defined on fluorescence trace |
 | run_corr_dff | dF/F | **dF/F** | correlation, no denominator |
-| receptive fields | dF/F | **testing events + window** | L0 sparsity may reduce fragmentation; 4-frame window smears 2.6 LSN presentations at 6 Hz |
+| receptive fields | ~~dF/F~~ events | **events** | L0 sparsity reduces fragmentation; window narrowed from 4 to 2 frames (see [explorations/rf_window_and_trace.md](rf_window_and_trace.md)) |
 | responsiveness | events | **events** | calibrated threshold |
 
 Changes made: `reliability` primary switched from events to dF/F (events
 companion shipped as `reliability_events`); NI/NI12 response window
 widened from 2 to 3 frames to reduce zero-inflation; `frac_zero_response`
-added per family to quantify remaining detector-driven zeros; RF
-comparison with events *and* response window width (1, 2, 4 frames) under
-evaluation (see `code/validation/rf_trace_comparison.py`).
+added per family to quantify remaining detector-driven zeros; RF trace
+type switched from dF/F to events and response window narrowed from 4 to
+2 frames based on the window/trace comparison (see
+[explorations/rf_window_and_trace.md](rf_window_and_trace.md)).
 
 
 ## References

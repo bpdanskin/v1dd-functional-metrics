@@ -9,8 +9,10 @@ ROI.
 Three things set it apart from every other family, all inherited from the original and all
 deliberate:
 
-* **dF/F, not deconvolved events**, and the only family with a *subtracted* baseline
-  (the 1 s window before onset). Every other family uses events with no baseline.
+* **Deconvolved events with no baseline subtraction.** L0 output is already denoised and
+  non-negative, so no baseline is needed. (The historical pipeline used dF/F with a 1 s
+  subtracted baseline; see [explorations/rf_window_and_trace.md](../explorations/rf_window_and_trace.md)
+  for the comparison that led to the switch.)
 * **No trial array.** Instead of grouping sweeps by condition and taking means, a design
   matrix records which stimulus pixels were bright (`pixel_on`) and which dark (`pixel_off`)
   on each sweep, and the map is the fraction of a pixel's presentations that produced a
@@ -21,11 +23,10 @@ deliberate:
 ## How the map is built
 
 1. **Sweep responses.** Each locally-sparse-noise frame onset is a sweep. The response is
-   `mean(trace in [onset, onset + 4*dt])` minus `mean(trace in [onset - 1s, onset])`,
-   where `dt` is the plane's imaging period. When the trace type is events, baseline
-   subtraction is skipped (L0 output is already denoised and non-negative). The baseline
-   subtraction matters for dF/F: without it, a neuron with a high sustained rate lights up
-   everywhere.
+   `mean(trace in [onset, onset + 2*dt])`, where `dt` is the plane's imaging period (~164 ms
+   at 6 Hz). With events (the default), no baseline is subtracted. With dF/F (historical),
+   the baseline `mean(trace in [onset - 1s, onset])` was subtracted — without it, a neuron
+   with a high sustained rate lights up everywhere.
 
 2. **Spontaneous null.** 10,000 bootstrap draws from the spontaneous block, same window,
    same baseline subtraction. The 95th percentile of this distribution is the per-ROI
@@ -49,7 +50,7 @@ deliberate:
 
 ## Response window smearing at 6 Hz
 
-The response window is `lsn_response_frames` imaging samples (default 4). The
+The response window is `lsn_response_frames` imaging samples (now 2, previously 4). The
 locally-sparse-noise stimulus presents a new pattern every ~250 ms. At 30 Hz, 4 frames =
 133 ms — comfortably within one stimulus presentation. At 6 Hz, 4 frames = 660 ms —
 **spanning 2.6 consecutive stimulus presentations**. Each sweep response therefore averages
@@ -57,19 +58,19 @@ neural activity driven by the target stimulus *and the next two patterns*.
 
 Because consecutive LSN frames are spatially uncorrelated by design, the contamination acts
 as noise: it raises the response floor at non-RF pixels and reduces contrast between true
-RF pixels and background. This contributes to the 95 % fragmentation rate and the
-prevalence of single-pixel fields.
+RF pixels and background.
 
-| frames | window (6 Hz) | LSN presentations spanned | notes |
+| frames | window (6 Hz) | LSN presentations spanned | status |
 |---|---|---|---|
-| 1 | ~165 ms | 0.66 | within one stimulus; may miss calcium peak |
-| 2 | ~330 ms | 1.32 | captures most of GCaMP6s transient; ~30% next-stimulus contamination |
-| 4 | ~660 ms | 2.64 | current default; substantial smearing |
+| 1 | ~164 ms | 0.66 | too narrow for events (1.8% detection) |
+| **2** | **~328 ms** | **1.31** | **current default; 68% single-component on events** |
+| 4 | ~656 ms | 2.62 | historical; severe smearing, 43% single-component on dF/F |
 
-The 4-frame default was inherited from the 30 Hz pipeline and never adjusted for 6 Hz.
-Whether reducing it improves maps is under evaluation — see
-`code/validation/rf_trace_comparison.py`, which compares detection rate and contiguity
-across 1, 2, and 4 frames with both dF/F and events.
+The comparison across 2 trace types × 3 window widths showed events at 2 frames produces
+the cleanest fields: detection rate drops from ~19% to ~10%, but 68% of detected fields are
+single connected components vs 43% at 4 frames with dF/F. See
+[explorations/rf_window_and_trace.md](../explorations/rf_window_and_trace.md) for the full
+comparison.
 
 ## The threshold is a knife edge
 

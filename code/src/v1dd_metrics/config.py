@@ -14,21 +14,23 @@ from typing import Any, Mapping, Optional, Tuple
 class MetricConfig:
     """Knobs, defaulted to computing the right thing.
 
-    Four defaults differ from what reproduces the historical tables —
-    `rf_center_scale_bug`, `pref_cond_fillna`, `ni_response_frames` and
-    `impute_dgw_center` — and each is documented where it is declared. `fit_all_sf` also
-    differs, but it is a speed knob rather than a correction. `REFERENCE_CONFIG` is the historical set, so both behaviours are one
-    argument away and which one you asked for is written down rather than inferred.
+    Five defaults differ from what reproduces the historical tables —
+    `rf_center_scale_bug`, `pref_cond_fillna`, `ni_response_frames`,
+    `impute_dgw_center`, and `lsn_response_frames` — and each is documented
+    where it is declared. `fit_all_sf` also differs, but it is a speed knob
+    rather than a correction. `REFERENCE_CONFIG` is the historical set, so
+    both behaviours are one argument away and which one you asked for is
+    written down rather than inferred.
     """
 
-    # --- trace type per family; events everywhere except receptive fields
+    # --- trace type per family; events everywhere
     trace_type: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({
         "drifting_gratings_full": "events",
         "drifting_gratings_windowed": "events",
         "natural_images": "events",
         "natural_images_12": "events",
         "natural_movie": "events",
-        "locally_sparse_noise": "dff",
+        "locally_sparse_noise": "events",
     }))
 
     # --- response windows
@@ -74,7 +76,12 @@ class MetricConfig:
     #: Natural-movie and LSN windows are counted in *imaging* frames, so they depend on
     #: the plane's own sampling period rather than on the stimulus.
     nm_response_frames: int = 3
-    lsn_response_frames: int = 4
+    #: LSN response window. The historical value was 4, inherited from the 30 Hz pipeline
+    #: where 4 frames = 133 ms (within one 250 ms LSN presentation). At 6 Hz, 4 frames =
+    #: 660 ms = 2.6 stimulus presentations of smearing. 2 frames (328 ms, 1.3 presentations)
+    #: halves detection rate but produces 68% single-component fields on events vs 43% at
+    #: 4 frames on dF/F. See docs/explorations/rf_window_and_trace.md.
+    lsn_response_frames: int = 2
 
     # --- bootstrap
     dg_n_boot: int = 2500
@@ -213,10 +220,19 @@ DEFAULT_CONFIG = MetricConfig()
 
 
 REFERENCE_CONFIG = MetricConfig(
+    trace_type=MappingProxyType({
+        "drifting_gratings_full": "events",
+        "drifting_gratings_windowed": "events",
+        "natural_images": "events",
+        "natural_images_12": "events",
+        "natural_movie": "events",
+        "locally_sparse_noise": "dff",           # default changed to events
+    }),
     rf_center_scale_bug=True,      # centres compressed by (n-1)/n
     pref_cond_fillna=True,         # all-NaN ROIs report condition 0
     ni_response_frames=None,       # fall back to the recovered time window
     ni_response_seconds=0.33,
+    lsn_response_frames=4,        # default changed to 2
     fit_all_sf=True,               # the original fitted every SF, not just the read one
     impute_dgw_center=False,       # the original imputed no aperture centre
     ssi_tuning_fit_includes_baseline=True,   # inconsistent with its own peak selection

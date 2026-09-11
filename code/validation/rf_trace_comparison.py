@@ -18,8 +18,8 @@ Usage (inside capsule):
 
 Outputs:
     docs/figures/evt_rf_window_comparison.png  — summary figure
-    docs/rf_trace_comparison.csv               — per-ROI metrics table
-    docs/rf_comparison_maps.npz                — unthresholded maps, all conditions
+    docs/explorations/rf_trace_comparison.csv   — per-ROI metrics table
+    docs/explorations/rf_comparison_maps.npz   — unthresholded maps, all conditions
 """
 import argparse, pathlib, sys, time
 from types import MappingProxyType
@@ -266,7 +266,10 @@ def main():
     plt.close(fig)
     print(f"\nSaved figure to {args.fig_dir / 'evt_rf_window_comparison.png'}")
 
-    out_path = args.fig_dir.parent / "rf_trace_comparison.csv"
+    explore_dir = args.fig_dir.parent / "explorations"
+    explore_dir.mkdir(parents=True, exist_ok=True)
+
+    out_path = explore_dir / "rf_trace_comparison.csv"
     df.to_csv(out_path, index=False)
     print(f"Saved comparison table to {out_path}")
 
@@ -275,12 +278,11 @@ def main():
     for (tk, nf), parts in map_parts.items():
         if parts:
             npz_data[f"rf_maps_{tk}_{nf}f"] = np.concatenate(parts, axis=0)
-    # Include the stimulus grid so maps can be plotted in degrees
     npz_data["altitudes"] = np.asarray(lsn_grid["altitudes"], dtype=np.float64)
     npz_data["azimuths"] = np.asarray(lsn_grid["azimuths"], dtype=np.float64)
     npz_data["frame_counts"] = np.array(FRAME_COUNTS)
     npz_data["trace_types"] = np.array(TRACE_TYPES)
-    npz_path = args.fig_dir.parent / "rf_comparison_maps.npz"
+    npz_path = explore_dir / "rf_comparison_maps.npz"
     np.savez_compressed(npz_path, **npz_data)
     print(f"Saved unthresholded maps to {npz_path} "
           f"({sum(v.nbytes for v in npz_data.values()) / 1e6:.1f} MB uncompressed)")
