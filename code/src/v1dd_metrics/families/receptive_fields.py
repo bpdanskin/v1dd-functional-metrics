@@ -39,7 +39,7 @@ def receptive_field_metrics(
 ) -> pd.DataFrame:
     """ON/OFF subfield maps and centres from the locally-sparse-noise stimulus.
 
-    Uses dF/F with a 1 s baseline subtraction. ``lsn`` is the dict from
+    Trace type and response window are set by ``config``. ``lsn`` is the dict from
     ``load_lsn_template``; its ``pixel_on``/``pixel_off`` determine the design matrix.
     Returns ``(metrics, rf_map)`` where ``rf_map`` is the continuous pre-threshold map
     ``(n_rois, 2, n_rows, n_cols)`` in float32.

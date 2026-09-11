@@ -64,21 +64,24 @@ def test_receptive_fields():
     spont_start = starts[-1] + 5.0
     spont_stop = spont_start + 300.0
     ts = np.arange(0.0, spont_stop + 20.0, DT)
-    traces = RNG.normal(0.0, 0.02, size=(len(ts), N_ROIS))     # dF/F-like, zero-mean
+    dff_traces = RNG.normal(0.0, 0.02, size=(len(ts), N_ROIS))  # dF/F-like, zero-mean
 
     # ROI 0 responds whenever the target pixel is bright; ROI 1 is silent; ROI 2 responds to
     # everything (should light up broadly); ROI 3 silent.
     for f, s in enumerate(starts):
         w = (ts >= s) & (ts <= s + 4 * DT)
         if images[f, TARGET_R, TARGET_C] == 1:
-            traces[w, 0] += 2.0
-        traces[w, 2] += 2.0
+            dff_traces[w, 0] += 2.0
+        dff_traces[w, 2] += 2.0
+
+    evt_traces = np.maximum(dff_traces, 0.0)  # events-like: non-negative
 
     roi_table = pd.DataFrame({"column": 1, "volume": 3, "plane": 0,
                               "roi": np.arange(N_ROIS), "pika_roi_confidence": 0.9})
     plane = vn.PlaneData(mouse_id="409828", depth_um=150.0, column=1, volume="3", plane=0, roi=np.arange(N_ROIS),
                          is_valid=np.ones(N_ROIS, bool), timestamps=ts,
-                         traces={"dff": traces}, roi_table=roi_table, dt=DT)
+                         traces={"dff": dff_traces, "events": evt_traces},
+                         roi_table=roi_table, dt=DT)
 
     cfg = MetricConfig(other_n_boot=2000)
 
