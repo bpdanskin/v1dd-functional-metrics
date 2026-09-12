@@ -6,7 +6,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG GIT_ASKPASS
 COPY git-ask-pass /
 
-ENV V1DD_CODE_VERSION=6bb8a596c2bc76c53cf1e948adeb419cd47666db
+ENV V1DD_CODE_VERSION=190c2bae0c0e09ac19f0c68364c85ce563284718
 
 RUN conda install -y \
         jupyterlab==4.6.3 \
