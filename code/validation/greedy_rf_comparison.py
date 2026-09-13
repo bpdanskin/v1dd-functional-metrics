@@ -306,13 +306,18 @@ def run_real(args):
                     masks[f"greedy_a{a:g}"] = gm
                 mm = {m: mask_metrics(masks[m], grid_deg) for m in methods}
                 for r in range(plane.n_rois):
-                    row = {"session": sess["name"], "plane": plane.plane, "roi": int(plane.roi[r])}
+                    # column/volume/depth let the CSV join to stimulus_metrics.parquet
+                    # (for SNR etc.) and support depth/SNR-stratified analysis
+                    row = {"session": sess["name"], "column": plane.column,
+                           "volume": plane.volume, "plane": plane.plane,
+                           "roi": int(plane.roi[r]), "depth_um": plane.depth_um}
                     for m in methods:
                         has, ncomp, largest, area = mm[m]
-                        row[f"{m}_has_on"] = bool(has[r, 0])
-                        row[f"{m}_single_on"] = ncomp[r, 0] == 1
-                        row[f"{m}_area_on"] = area[r, 0]
-                        row[f"{m}_largest_on"] = largest[r, 0]
+                        for pi, pol in ((0, "on"), (1, "off")):
+                            row[f"{m}_has_{pol}"] = bool(has[r, pi])
+                            row[f"{m}_single_{pol}"] = ncomp[r, pi] == 1
+                            row[f"{m}_area_{pol}"] = area[r, pi]
+                            row[f"{m}_largest_{pol}"] = largest[r, pi]
                     rows.append(row)
                 del plane
         finally:
@@ -347,7 +352,7 @@ def main():
     p.add_argument("--synthetic", action="store_true", help="local ground-truth comparison")
     p.add_argument("--sessions", type=int, default=None, help="limit real sessions")
     p.add_argument("--data-dir", type=pathlib.Path, default=None)
-    p.add_argument("--alphas", type=str, default="0.05,0.01,0.001",
+    p.add_argument("--alphas", type=str, default="0.05,0.04,0.03,0.02,0.01",
                    help="comma-separated Holm-Sidak alphas to sweep (specificity knob)")
     p.add_argument("--n-boot", type=int, default=5000)
     p.add_argument("--seed", type=int, default=0)
