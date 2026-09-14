@@ -137,14 +137,19 @@ def window_containment(
     center: Sequence[float],
     *,
     config: MetricConfig = DEFAULT_CONFIG,
+    thresh: Optional[float] = None,
 ) -> pd.DataFrame:
     """RF-to-aperture distance and overlap for each ROI.
 
-    ``rf_frame`` carries RF centres; ``rf_map`` is ``(n_rois, 2, n_rows, n_cols)``
-    pre-threshold. ``lsn`` supplies the stimulus grid; ``center`` is the aperture
-    ``(azimuth, elevation)``. Returns a frame of ``CONTAINMENT_COLUMNS``, all NaN where
-    the centre is non-finite or the ROI has no field.
+    ``rf_frame`` carries RF centres; ``rf_map`` is ``(n_rois, 2, n_rows, n_cols)``. Pixels
+    at or below ``thresh`` are dropped before the overlap; ``thresh`` defaults to
+    ``config.rf_frac_thresh`` (the fraction method's pre-threshold map). The greedy method
+    passes its already-significant strict mask with ``thresh=0.5``. ``lsn`` supplies the
+    stimulus grid; ``center`` is the aperture ``(azimuth, elevation)``. Returns a frame of
+    ``CONTAINMENT_COLUMNS``, all NaN where the centre is non-finite or the ROI has no field.
     """
+    if thresh is None:
+        thresh = config.rf_frac_thresh
     n_rois = len(rf_frame)
     out = {c: np.full(n_rois, np.nan) for c in CONTAINMENT_COLUMNS}
     cov = _window_coverage(lsn["azimuths"], lsn["altitudes"], center,
@@ -159,7 +164,7 @@ def window_containment(
             rf_frame[f"azimuth_rf_{sub}"].to_numpy(dtype=np.float64) - caz,
             rf_frame[f"altitude_rf_{sub}"].to_numpy(dtype=np.float64) - cel)
         w = np.asarray(rf_map[:, i, :, :], dtype=np.float64).copy()
-        w[w < config.rf_frac_thresh] = 0.0
+        w[w < thresh] = 0.0
         den = w.sum(axis=(1, 2))
         num = (w * cov[None, :, :]).sum(axis=(1, 2))
         with np.errstate(invalid="ignore", divide="ignore"):

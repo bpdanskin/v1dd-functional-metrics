@@ -110,10 +110,15 @@ their 25 % figure without that adjustment makes V1DD look less responsive than i
 
 ## Where this diverges from the 2019 white paper
 
-* **Receptive-field area is not reported**, and should not be derived from the maps
-  casually. At the 9.3° grid, of 7,068 ON fields 3,491 are a single pixel, 95 % are
-  fragmented, and only **316 ROIs — 0.8 %** have a compact component of ≥ 6 pixels. V1DD
-  never ran the 4.65° sparse noise de Vries had.
+* **Receptive fields use the greedy pixelwise method** (per-pixel STA + bootstrap +
+  Holm-Šidák), not the historical fraction-threshold method (kept behind
+  `rf_method="fraction"` for reference reproduction). On 25 sessions the fraction method
+  fragmented — 95% of ON fields non-contiguous, only 0.8% with a compact ≥6-pixel component,
+  so RF area was unusable. Greedy's multiple-comparisons correction collapses that
+  fragmentation (81% → 97% single-component), making RF area *reliable but coarse* — the
+  grid is still 9.3° (V1DD never ran the 4.65° sparse noise de Vries had), so fields are
+  mostly 1–2 pixels. Two variants ship: strict (default) and sensitive (`_a05`). See
+  [explorations/greedy_rf.md](explorations/greedy_rf.md).
 * **Surround suppression does not track receptive-field position.** `ssi` against
   RF-to-aperture distance gives r = −0.03, flat from 0° to beyond 37°. The white paper
   listed surround suppression under ongoing analysis and found the same targeting problem

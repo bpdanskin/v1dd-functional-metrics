@@ -35,7 +35,7 @@ already name the stimulus keep an empty prefix.
 | `natural_images` | `ni_` | 9 | `frac_responsive_trials`, `frac_zero_response`, `lifetime_sparseness`, `pref_img`, `pref_response`, `z_score`, `reliability`, `reliability_events`, `n_trials_at_pref` |
 | `natural_images_12` | `ni12_` | 9 | the same nine |
 | `natural_movie` | `nm_` | 9 | the same nine, with `pref_img` a frame index |
-| `rf_metrics` | — | 7 | `has_rf_on`, `has_rf_off`, `has_rf_on_or_off`, `azimuth_rf_on`, `altitude_rf_on`, `azimuth_rf_off`, `altitude_rf_off` |
+| `rf_metrics` | — | 14 | strict (default): `has_rf_on`, `has_rf_off`, `has_rf_on_or_off`, `azimuth_rf_on`, `altitude_rf_on`, `azimuth_rf_off`, `altitude_rf_off`; and the same seven `_a05` for the sensitive variant — see [receptive_fields.md](families/receptive_fields.md) |
 | `roi_position` | — | 10 | `roi_x_px`, `roi_y_px`, `roi_area_px`, `roi_radius_px`, `roi_x_um`, `roi_y_um`, and the two anatomical frames `roi_{x,y}_um_published` / `roi_{x,y}_um_retinotopic` — see [roi_position.md](families/roi_position.md) |
 
 Identity: `roi_unique_id`, `roi_key`, `mouse`, `column`, `volume`, `plane`, `roi`,
@@ -62,12 +62,14 @@ is not. Only the spatial frequency surround suppression reads is fitted, so the 
 column of `*_params` is **NaN by design, not by failed fit** — set `fit_all_sf=True` for a
 completeness run.
 
-**`receptive_field_maps.npz`** — `rf_maps` (n_rois, 2, n_rows, n_cols) float32, dim 1 is
-ON then OFF. Each value is the fraction of that pixel's presentations producing a response
-above the ROI's own bootstrapped spontaneous 95th percentile, **before** the 0.25
-threshold. Invalid ROIs are all-zero, so a blank map means *excluded*, not *no receptive
-field*. `altitudes`, `azimuths` and `seed` travel with it: without them pixel indices
-cannot become degrees and per-pixel significance cannot be reproduced.
+**`receptive_field_maps.npz`** — depends on `rf_method`. Greedy (default): `rf_sta`
+(n_rois, 2, n_rows, n_cols) float32 stimulus-triggered average, dim 1 ON then OFF; `rf_ge`
+the bootstrap shuffle-counts (uint16), from which any α's mask is reproducible via
+Holm-Šidák; `strict_mask` the shipped strict detections; plus `n_boot`, `alpha_strict`,
+`alpha_sens`. Fraction (`REFERENCE_CONFIG`): `rf_maps`, the pre-threshold fraction of each
+pixel's presentations producing a response above the ROI's spontaneous 95th percentile.
+Either way `altitudes`, `azimuths` and `seed` travel with it, and invalid ROIs are empty
+(*excluded*, not *no receptive field*).
 
 **`condition_means.npz`** — `ni_mean` (n_rois, 118) and `ni12_mean` (n_rois, 12) with
 their `*_images` ids. Every published natural-image column is a reduction of this matrix,

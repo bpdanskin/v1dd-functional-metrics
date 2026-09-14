@@ -9,6 +9,7 @@
 
 - [Events vs dF/F](explorations/events_vs_dff.md) -- L0 event quality at 6 Hz, per-metric trace choice
 - [RF window and trace](explorations/rf_window_and_trace.md) -- why receptive fields use events at 2 frames
+- [Greedy RF](explorations/greedy_rf.md) -- greedy pixelwise RF (bootstrap + Holm-Šidák) replaces the fraction-threshold method
 
 ## Notebooks
 

@@ -1,159 +1,122 @@
 # Receptive fields
 
 Where each neuron responds in visual space. ON and OFF subfield maps are built from the
-locally-sparse-noise stimulus, thresholded, and reduced to a centre and a presence flag per
-ROI.
+locally-sparse-noise (LSN) stimulus and reduced to a centre and a presence flag per ROI.
 
-## What makes this family different
+Two methods exist, selected by `config.rf_method`:
 
-Three things set it apart from every other family, all inherited from the original and all
-deliberate:
+* **`"greedy"` (default)** — the greedy pixelwise RF (Millman, ported from `v1dd_physiology`):
+  per-pixel stimulus-triggered average of events, a per-pixel bootstrap p-value, and a
+  Holm-Šidák correction across all pixels. Two variants ship (strict + sensitive).
+* **`"fraction"` (historical)** — the fraction-threshold method described below under
+  *The historical fraction method*. This is what `REFERENCE_CONFIG` uses to reproduce the
+  old tables and the array-replay validation.
 
-* **Deconvolved events with no baseline subtraction.** L0 output is already denoised and
-  non-negative, so no baseline is needed. (The historical pipeline used dF/F with a 1 s
-  subtracted baseline; see [explorations/rf_window_and_trace.md](../explorations/rf_window_and_trace.md)
-  for the comparison that led to the switch.)
-* **No trial array.** Instead of grouping sweeps by condition and taking means, a design
-  matrix records which stimulus pixels were bright (`pixel_on`) and which dark (`pixel_off`)
-  on each sweep, and the map is the fraction of a pixel's presentations that produced a
-  significant response.
-* **No GLM.** The published README describes "a GLM framework"; there is no regression
-  anywhere in this code. The design matrix is used purely as a counting indicator.
+The switch was made after a 25-session comparison: the fraction method fragments (only
+**81%** of detected ON fields are a single connected component, mean area 3.3 px vs median
+1 px — a long tail of scattered false pixels), while greedy holds **95–97%** single-component
+at every depth and SNR, with comparable-or-better detection. See
+[explorations/greedy_rf.md](../explorations/greedy_rf.md).
 
-## How the map is built
+## How the greedy map is built
 
-1. **Sweep responses.** Each locally-sparse-noise frame onset is a sweep. The response is
-   `mean(trace in [onset, onset + 2*dt])`, where `dt` is the plane's imaging period (~164 ms
-   at 6 Hz). With events (the default), no baseline is subtracted. With dF/F (historical),
-   the baseline `mean(trace in [onset - 1s, onset])` was subtracted — without it, a neuron
-   with a high sustained rate lights up everywhere.
+1. **Sweep responses.** Each LSN frame onset is a sweep; the response is
+   `mean(events in [onset, onset + lsn_response_frames*dt])` (2 frames, ~328 ms at 6 Hz).
+   Events, no baseline (L0 output is already denoised and non-negative).
 
-2. **Spontaneous null.** 10,000 bootstrap draws from the spontaneous block, same window,
-   same baseline subtraction. The 95th percentile of this distribution is the per-ROI
-   threshold: a sweep counts as significant if its response exceeds it.
+2. **Design matrix.** `(2 × n_pixels, n_sweeps)` boolean: the first `n_pixels` rows mark
+   ON (bright) pixels, the rest OFF (dark). The template is read from the NWB (this asset
+   encodes stimuli as −1/0/1, not the original's 0/127/255).
 
-3. **Design matrix.** `(2 × n_pixels, n_sweeps)` boolean: the first `n_pixels` rows are ON
-   (bright), the rest OFF (dark). Gray pixels are neither. The template is read from the
-   NWB rather than hard-coded — this asset encodes stimuli as −1/0/1 where the original
-   assumed 0/127/255, and hard-coding those would make both matrices all-False.
+3. **STA.** For each pixel, `STA = design · sweep_responses` — the summed event response
+   over the sweeps where that pixel was active.
 
-4. **Fraction map.** For each pixel, the fraction of its presentations that were
-   significant: `n_significant / n_presentations`. This gives a continuous
-   `(n_rois, 2, 8, 14)` array — ON and OFF subfields on an 8-row by 14-column grid.
+4. **Per-pixel bootstrap null.** Resample the sweeps with replacement `rf_greedy_n_boot`
+   (5000) times; the p-value is the fraction of shuffled STAs ≥ the observed STA. This is
+   the LSN stimulus's own null — no spontaneous block needed.
 
-5. **Threshold.** Pixel fractions below `rf_frac_thresh` (0.25) are zeroed. "Has a
-   receptive field" reduces to "at least one pixel survived."
+5. **Holm-Šidák correction.** Across all `2·n_pixels` tests per ROI, control the
+   family-wise error rate. A pixel is significant if its corrected p < α. This multiple-
+   comparisons control is what prunes the scattered false pixels the fraction method keeps.
 
-6. **Centre.** The **unweighted** centroid of the surviving pixel indices, mapped to
-   degrees by interpolation into the stimulus grid's known positions. The post-threshold
-   fractions are not used as weights.
+6. **Two variants from one p-value array.** `rf_greedy_alpha_strict` (0.01) →
+   the canonical columns (`has_rf_on`, …); `rf_greedy_alpha_sens` (0.05) → the parallel
+   `_a05` columns, more sensitive at a modest false-positive cost. At 5000 bootstraps the
+   sweep **aliases**: α = 0.04..0.01 are identical (only p=0 pixels survive below 0.05), so
+   strict α=0.01 stands in for the whole ≤0.04 band. There are effectively two operating
+   points, not a continuum.
 
-## Response window smearing at 6 Hz
+7. **Centre.** Unweighted centroid of the significant pixels, mapped to degrees by
+   interpolation into the stimulus grid (see the scale-bug note below).
 
-The response window is `lsn_response_frames` imaging samples (now 2, previously 4). The
-locally-sparse-noise stimulus presents a new pattern every ~250 ms. At 30 Hz, 4 frames =
-133 ms — comfortably within one stimulus presentation. At 6 Hz, 4 frames = 660 ms —
-**spanning 2.6 consecutive stimulus presentations**. Each sweep response therefore averages
-neural activity driven by the target stimulus *and the next two patterns*.
+α is held **global** (one value per variant) — the greedy tradeoff is stable across depth
+and SNR, and a per-cell/per-depth α would make `has_rf` incomparable across cells.
 
-Because consecutive LSN frames are spatially uncorrelated by design, the contamination acts
-as noise: it raises the response floor at non-RF pixels and reduces contrast between true
-RF pixels and background.
+## The historical fraction method (`rf_method="fraction"`)
 
-| frames | window (6 Hz) | LSN presentations spanned | status |
-|---|---|---|---|
-| 1 | ~164 ms | 0.66 | too narrow for events (1.8% detection) |
-| **2** | **~328 ms** | **1.31** | **current default; 68% single-component on events** |
-| 4 | ~656 ms | 2.62 | historical; severe smearing, 43% single-component on dF/F |
+The map is the fraction of a pixel's presentations that produced a significant response:
+each sweep is significant if it exceeds the ROI's spontaneous 95th percentile (10,000
+bootstrap draws from the spontaneous block, same window; dF/F historically used a 1 s
+subtracted baseline). Pixels below `rf_frac_thresh` (0.25) are zeroed; "has a receptive
+field" = at least one pixel survived. Kept because `REFERENCE_CONFIG` reproduces it and the
+offline array-replay validates against it. Its two structural weaknesses — the knife-edge
+threshold and unusable RF area — are why greedy is now the default:
 
-The comparison across 2 trace types × 3 window widths showed events at 2 frames produces
-the cleanest fields: detection rate drops from ~19% to ~10%, but 68% of detected fields are
-single connected components vs 43% at 4 frames with dF/F. See
-[explorations/rf_window_and_trace.md](../explorations/rf_window_and_trace.md) for the full
-comparison.
+**The threshold is a knife edge.** Each pixel fraction is a ratio of ~44 presentations, so
+the map takes ~81 distinct values (multiples of 1/44); `rf_frac_thresh = 0.25` is 11/44.
+~23,751 pixels sit at exactly 0.25 (16.9% of ROIs have one). The comparison is `<`, so a
+half-ULP perturbation moves ~30% of RF centres. Greedy has no such threshold — significance
+is a corrected p-value, not a fraction cut.
 
-## The threshold is a knife edge
-
-Each pixel fraction is a ratio of ~44 presentations, so the map takes only **81 distinct
-values**, all multiples of 1/44. `rf_frac_thresh = 0.25` is exactly 11/44.
-
-| | |
-|---|---|
-| non-zero pixels across the asset | 8,021,612 |
-| pixels sitting at exactly 0.25 | **23,751** |
-| ROIs with at least one pixel on the threshold | **6,679 of 39,407 (16.9 %)** |
-
-The comparison is `<` (pixels at exactly 0.25 are kept). Had it been `<=`, all 23,751
-would be dropped. Perturbing the stored map by half a float32 ULP — the smallest change
-the archive can represent — moves **~30 % of RF centres**, worst case **60 degrees** in
-azimuth. The mechanism: a pixel on the boundary flips, and since 49 % of ON fields are a
-single pixel, that flip can relocate or delete the entire field.
-
-The centres reproduce **bit-exactly** from the shipped maps. The instability is a property
-of the threshold, not of the code.
-
-## RF area is near-unusable at this grid
-
-Pixels are 9.3 degrees across. Of 7,068 ON fields:
-
-| | |
-|---|---|
-| single-pixel fields | 3,491 (49 %) |
-| fragmented (non-contiguous) | 95 % |
-| compact component of ≥ 6 pixels | **316 ROIs (0.8 %)** |
-
-Taking moments of the whole thresholded map gives an equivalent radius of 38 degrees —
-wider than the monitor. A meaningful area requires extracting the largest connected
-component first, but even then almost no ROI has enough pixels. V1DD never ran the 4.65°
-sparse noise that de Vries had. RF area is **not reported** and should not be derived from
-these maps casually.
+**RF area is near-unusable.** At 9.3° pixels, 95% of fraction ON fields are fragmented and
+only 0.8% have a compact ≥6-pixel component; moments of the whole map give a 38° radius,
+wider than the monitor. Greedy's MC correction collapses the fragmented tail (mean area
+3.3 px → 1.2 px, 95–97% single-component), which is what finally makes RF area a reliable —
+if coarse — metric. (The grid is still 9.3°; greedy fixes fragmentation, not resolution.)
 
 ## The pixel-to-degree scale has a historical bug
 
-`_rf_pixel_to_degrees` implements two mappings. The original divides the centre-to-centre
-*range* by `n` rather than `n - 1`, compressing the scale by `(n−1)/n`: 12.5 % in
-altitude (8 rows) and 7.1 % in azimuth (14 columns). The historical table therefore spans
-±28.48° and ±56.13° where the screen spans ±32.55° and ±60.45°.
-
-`rf_center_scale_bug=False` (the default) gives the correct mapping. The two differ by
-exactly `n/(n−1)`, which makes the correction verifiable rather than merely asserted.
+`_rf_pixel_to_degrees` implements two mappings; the original divides the centre-to-centre
+range by `n` instead of `n − 1`, compressing the scale by `(n−1)/n` (12.5% altitude, 7.1%
+azimuth). `rf_center_scale_bug=False` (the default) is correct; the two differ by exactly
+`n/(n−1)`. Applies to both methods.
 
 ## How the pipeline runs it
 
-`receptive_field_metrics` in `families/receptive_fields.py`. Called once per plane. Returns
-a metrics frame **and** the continuous pre-threshold `rf_map` array, which is saved to
-`receptive_field_maps.npz` alongside the stimulus grid coordinates and the bootstrap seed.
+`receptive_field_metrics` in `families/receptive_fields.py`, once per plane, returns a
+metrics frame **and** a method-tagged arrays dict. `write_rf_maps` archives to
+`receptive_field_maps.npz`:
 
-The pre-threshold map is what ships, not the post-threshold one: graded values before
-zeroing are recoverable to post-threshold in one line (`map[map < 0.25] = 0`), but the
-reverse is not.
+* greedy: `rf_sta` (STA, float32), `rf_ge` (bootstrap shuffle-counts, uint16 — any α's mask
+  is reproducible from these via Holm-Šidák), `strict_mask`, `n_boot`, `alpha_strict`,
+  `alpha_sens`, plus `altitudes`, `azimuths`, `seed`.
+* fraction: the pre-threshold `rf_maps`, plus the axes and seed.
 
-Low-confidence ROIs (`pika_roi_confidence <= 0.5`) have their maps zeroed rather than left
-populated. This is documented as "excluded", not "no RF" — a cell the segmentation
-distrusts should not contribute a receptive field.
+Surround suppression consumes the **strict** variant (mask for aperture overlap, centres
+for RF-to-aperture distance). Low-confidence ROIs (`pika_roi_confidence <= 0.5`) get empty
+maps ("excluded", not "no RF").
 
 ## Columns
 
+The canonical seven are the **strict** variant; the `_a05` seven are the **sensitive**
+variant (identical meaning, α=0.05). Under `rf_method="fraction"` the `_a05` columns are
+absent (bools False, centres NaN).
+
 | column | meaning |
 |---|---|
-| `has_rf_on` | at least one ON pixel survived the threshold |
-| `has_rf_off` | at least one OFF pixel survived the threshold |
-| `has_rf_on_or_off` | either subfield is present |
-| `azimuth_rf_on` | ON subfield centre, degrees of visual angle |
-| `altitude_rf_on` | ON subfield centre, degrees of visual angle |
-| `azimuth_rf_off` | OFF subfield centre, degrees of visual angle |
-| `altitude_rf_off` | OFF subfield centre, degrees of visual angle |
+| `has_rf_on` / `has_rf_off` | at least one significant ON / OFF pixel (strict) |
+| `has_rf_on_or_off` | either subfield present (strict) |
+| `azimuth_rf_on` / `altitude_rf_on` | ON subfield centre, degrees (strict) |
+| `azimuth_rf_off` / `altitude_rf_off` | OFF subfield centre, degrees (strict) |
+| `*_a05` | the same seven for the sensitive (α=0.05) variant |
 
 Centres are NaN where the corresponding `has_rf_*` is False.
 
-The continuous map is in `receptive_field_maps.npz`, keyed `rf_maps` with shape
-`(n_rois, 2, 8, 14)`, plus `altitudes`, `azimuths`, and `seed`.
-
 ## Sanity checks worth running on a fresh asset
 
-* Thresholding the shipped `rf_maps` at 0.25 reproduces `has_rf_on` / `has_rf_off` for
-  100 % of ROIs — an exact relationship.
-* Centres fall within the stimulus grid: altitude within ±32.55°, azimuth within ±60.45°
-  (or the compressed ±28.48°/±56.13° under the bug).
-* `has_rf_on_or_off` is exactly `has_rf_on | has_rf_off`.
-* Low-confidence ROIs have all-zero maps.
+* `has_rf_on_or_off` is exactly `has_rf_on | has_rf_off` (and likewise for `_a05`).
+* Sensitive detects ≥ strict per ROI (`has_rf_*_a05 >= has_rf_*`).
+* Centres fall within the stimulus grid (±32.55° altitude, ±60.45° azimuth; or the
+  compressed ±28.48°/±56.13° under the scale bug).
+* Greedy masks reproduce from `rf_ge` + the stored alphas via Holm-Šidák.
+* Low-confidence ROIs have no RF.

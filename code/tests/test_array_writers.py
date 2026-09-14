@@ -31,7 +31,11 @@ def accumulator(n_planes=3, n_rois=5, blanks=N_BLANK):
             part["running"].append(rng.random((N_DIR, N_SF, N_TRIALS)).astype(np.float32))
             part["plane_key"].append(f"M409828_1_3_{p}")
         keys += [f"M409828_1_3_{p}_{r}" for r in range(n_rois)]
-        acc.rf_maps.append(rng.random((n_rois, 2, 8, 14)).astype(np.float32))
+        acc.rf_arrays.append({
+            "method": "greedy",
+            "sta": rng.random((n_rois, 2, 8, 14)).astype(np.float32),
+            "ge": (rng.random((n_rois, 2, 8, 14)) * 100).astype(np.uint16),
+            "strict_mask": rng.random((n_rois, 2, 8, 14)) > 0.9})
     tables = {"drifting_gratings_windowed": pd.DataFrame({"roi_key": keys}),
               "rf_metrics": pd.DataFrame({"roi_key": keys})}
     return acc, tables
@@ -89,16 +93,30 @@ def test_it_refuses_when_the_roi_axis_does_not_match_the_table(tmp_path):
 
 
 def test_receptive_field_maps_carry_their_degree_axes_and_seed(tmp_path):
-    """Without altitudes, azimuths and the seed the maps are uninterpretable."""
+    """Greedy archive: STA + bootstrap counts + the axes/seed/params to reproduce masks."""
     acc, tables = accumulator()
-    name = pl.write_rf_maps(acc, tables, tmp_path, seed=7)
+    name = pl.write_rf_maps(acc, tables, tmp_path, seed=7, config=pl.DEFAULT_CONFIG)
     z = dict(np.load(tmp_path / name, allow_pickle=True))
-    check("maps are (rois, 2, rows, cols)", z["rf_maps"].shape == (15, 2, 8, 14),
-          str(z["rf_maps"].shape))
-    check("ON/OFF axis is second", z["rf_maps"].shape[1] == 2)
-    for key in ("roi_key", "altitudes", "azimuths", "seed"):
+    check("STA is (rois, 2, rows, cols)", z["rf_sta"].shape == (15, 2, 8, 14),
+          str(z["rf_sta"].shape))
+    check("ON/OFF axis is second", z["rf_sta"].shape[1] == 2)
+    check("bootstrap counts stored as uint16", z["rf_ge"].dtype == np.uint16)
+    for key in ("roi_key", "altitudes", "azimuths", "seed", "n_boot",
+                "alpha_strict", "alpha_sens", "strict_mask"):
         check(f"{key} travels with the maps", key in z, str(sorted(z)))
     check("the seed is the one used", int(z["seed"]) == 7)
+    check("n_boot recorded", int(z["n_boot"]) == pl.DEFAULT_CONFIG.rf_greedy_n_boot)
+
+
+def test_receptive_field_maps_fraction_archive(tmp_path):
+    """rf_method='fraction' keeps writing the pre-threshold rf_maps."""
+    acc, tables = accumulator()
+    acc.rf_arrays = [{"method": "fraction", "rf_map": a["sta"]} for a in acc.rf_arrays]
+    name = pl.write_rf_maps(acc, tables, tmp_path, seed=3, config=pl.REFERENCE_CONFIG)
+    z = dict(np.load(tmp_path / name, allow_pickle=True))
+    check("fraction maps are (rois, 2, rows, cols)", z["rf_maps"].shape == (15, 2, 8, 14),
+          str(z["rf_maps"].shape))
+    check("the seed is the one used", int(z["seed"]) == 3)
 
 
 def test_a_writer_with_nothing_to_write_returns_none(tmp_path):

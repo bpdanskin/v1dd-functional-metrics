@@ -54,7 +54,7 @@ class Accumulator:
 
     def __init__(self) -> None:
         self.parts: dict[str, list] = {f: [] for f in FAMILIES}
-        self.rf_maps: list[np.ndarray] = []
+        self.rf_arrays: list[dict] = []          # per-plane RF array payloads (method-tagged)
         self.lsn_grid: Optional[dict] = None
         self.tuning = {k: {p: [] for p in _TUNING_PARTS} for k in ("dgw", "dgf")}
         self.tuning_axes: Optional[tuple] = None
@@ -135,10 +135,10 @@ def process_plane(plane, ctx: dict, acc: Accumulator, config: MetricConfig,
     # Receptive fields first: surround suppression reports how much of each field the
     # grating aperture covered, so the maps must exist before it runs.
     with acc.stage("receptive_fields"):
-        rf_df, rf_map = rfm.receptive_field_metrics(
+        rf_df, rf_arr = rfm.receptive_field_metrics(
             plane, ctx["lsn_trials"], ctx["spont"], ctx["lsn"], config=config, rng=rng())
     acc.parts["rf_metrics"].append(rf_df)
-    acc.rf_maps.append(rf_map)
+    acc.rf_arrays.append(rf_arr)
 
     trials, blank = ctx["dg_trials"]["windowed"]
     with acc.stage("drifting_gratings_windowed"):
@@ -157,8 +157,9 @@ def process_plane(plane, ctx: dict, acc: Accumulator, config: MetricConfig,
     acc.parts["drifting_gratings_full"].append(dgf.metrics)
 
     with acc.stage("surround_suppression"):
-        containment = ssm.window_containment(rf_df, rf_map, ctx["lsn"], ctx["center"],
-                                             config=config)
+        containment = ssm.window_containment(rf_df, rf_arr["overlap_map"], ctx["lsn"],
+                                             ctx["center"], config=config,
+                                             thresh=rf_arr["overlap_thresh"])
         acc.parts["surround_suppression"].append(ssm.surround_suppression_metrics(
             dgw, dgf, plane, config=config, containment=containment,
             center=ctx["center"], center_inferred=ctx["center_inferred"]))
@@ -360,21 +361,40 @@ def _guarded(label: str, outputs: list, errors: list) -> Callable:
     return wrap
 
 
-def write_rf_maps(acc: Accumulator, tables: dict, save_dir: Path, seed: int
-                  ) -> Optional[str]:
-    """Pre-threshold ON/OFF subfield maps, (n_rois, 2, n_rows, n_cols).
+def write_rf_maps(acc: Accumulator, tables: dict, save_dir: Path, seed: int,
+                  config: Optional[MetricConfig] = None) -> Optional[str]:
+    """ON/OFF subfield archive, (n_rois, 2, n_rows, n_cols).
 
-    Altitudes, azimuths and the seed travel with the maps or pixel indices cannot be
-    turned into degrees and per-pixel significance cannot be reproduced.
+    Greedy (default): the STA and the bootstrap shuffle-counts ``ge`` — any alpha's mask is
+    reproducible from ``ge`` via Holm-Šidák, so both shipped variants and re-thresholds
+    derive from one array. Fraction (reference): the pre-threshold ``rf_maps``. Altitudes,
+    azimuths and the seed travel with the maps or pixel indices cannot become degrees and
+    per-pixel significance cannot be reproduced.
     """
-    if not acc.rf_maps or acc.lsn_grid is None:
+    if not acc.rf_arrays or acc.lsn_grid is None:
         return None
+    method = acc.rf_arrays[0].get("method", "greedy")
     path = save_dir / "receptive_field_maps.npz"
-    np.savez_compressed(
-        path, rf_maps=np.concatenate(acc.rf_maps, axis=0).astype(np.float32),
-        roi_key=tables["rf_metrics"]["roi_key"].to_numpy(),
-        altitudes=acc.lsn_grid["altitudes"], azimuths=acc.lsn_grid["azimuths"],
-        seed=np.array(seed))
+    common = dict(roi_key=tables["rf_metrics"]["roi_key"].to_numpy(),
+                  altitudes=acc.lsn_grid["altitudes"], azimuths=acc.lsn_grid["azimuths"],
+                  seed=np.array(seed))
+
+    def stack(key, dtype):
+        return np.concatenate([a[key] for a in acc.rf_arrays], axis=0).astype(dtype)
+
+    if method == "greedy":
+        payload = dict(
+            method="greedy",
+            rf_sta=stack("sta", np.float32),
+            rf_ge=stack("ge", np.uint16),
+            strict_mask=stack("strict_mask", bool),
+            n_boot=np.array(config.rf_greedy_n_boot if config else 0),
+            alpha_strict=np.array(config.rf_greedy_alpha_strict if config else np.nan),
+            alpha_sens=np.array(config.rf_greedy_alpha_sens if config else np.nan),
+            **common)
+    else:
+        payload = dict(method="fraction", rf_maps=stack("rf_map", np.float32), **common)
+    np.savez_compressed(path, **payload)
     return path.name
 
 
@@ -626,7 +646,7 @@ def run(input_asset: Path, results_dir: Path, asset_prefix: str = "V1DD_function
     arrays: list[str] = []
     write_errors: list[dict] = []
     _guarded("receptive_field_maps.npz", arrays, write_errors)(
-        lambda: write_rf_maps(acc, tables, save_dir, seed))
+        lambda: write_rf_maps(acc, tables, save_dir, seed, config))
     _guarded("tuning_curves.npz", arrays, write_errors)(
         lambda: write_tuning_curves(acc, tables, save_dir, config))
     _guarded("condition_means.npz", arrays, write_errors)(

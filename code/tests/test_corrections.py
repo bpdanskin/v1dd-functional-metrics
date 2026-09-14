@@ -51,8 +51,8 @@ def test_corrections():
     #   performance   fit_all_sf -- changes no published column, but leaves half of the
     #                 exported tuning_curves `*_params` NaN, so it belongs here once those
     #                 arrays ship.
-    check("exactly ten settings differ", differing == {
-        "rf_center_scale_bug", "pref_cond_fillna", "ni_response_frames",
+    check("exactly eleven settings differ", differing == {
+        "rf_method", "rf_center_scale_bug", "pref_cond_fillna", "ni_response_frames",
         "lsn_response_frames", "trace_type",
         "fit_all_sf", "impute_dgw_center", "ssi_tuning_fit_includes_baseline",
         "lifetime_sparseness_over", "zero_denominator_nan"}, str(sorted(differing)))

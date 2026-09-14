@@ -14,8 +14,8 @@ from typing import Any, Mapping, Optional, Tuple
 class MetricConfig:
     """Knobs, defaulted to computing the right thing.
 
-    Five defaults differ from what reproduces the historical tables —
-    `rf_center_scale_bug`, `pref_cond_fillna`, `ni_response_frames`,
+    Several defaults differ from what reproduces the historical tables —
+    `rf_method`, `rf_center_scale_bug`, `pref_cond_fillna`, `ni_response_frames`,
     `impute_dgw_center`, and `lsn_response_frames` — and each is documented
     where it is declared. `fit_all_sf` also differs, but it is a speed knob
     rather than a correction. `REFERENCE_CONFIG` is the historical set, so
@@ -113,6 +113,26 @@ class MetricConfig:
     dg_frac_thresh: float = 0.50
     ni_frac_thresh: float = 0.25
     rf_frac_thresh: float = 0.25
+
+    # --- receptive field method
+    #: ``"greedy"`` (default) is the greedy pixelwise RF (Millman, from v1dd_physiology):
+    #: per-pixel STA of events, per-pixel bootstrap p-value (resample sweeps with
+    #: replacement), Holm-Šidák correction across all 2*n_pixels tests, detect where the
+    #: corrected p < alpha. It dominates the historical fraction-threshold method on both
+    #: detection and contiguity at every depth and SNR (see docs/explorations/greedy_rf.md):
+    #: fraction gives 81% single-component ON fields, greedy 95-97%. ``"fraction"`` keeps the
+    #: historical method (thresholds ``rf_frac_thresh``) and is what REFERENCE_CONFIG uses.
+    rf_method: str = "greedy"
+    #: Bootstrap resamples for the greedy per-pixel null. At 5000 the alpha sweep aliases:
+    #: alpha 0.04..0.01 are identical (only p=0 pixels survive below 0.05), so there are two
+    #: operating points — alpha_sens=0.05 and alpha_strict (anywhere <=0.04).
+    rf_greedy_n_boot: int = 5000
+    #: Default (canonical columns): strict Holm-Šidák alpha -> ~8.6% ON detection, 97%
+    #: single-component. The greedy response window reuses ``lsn_response_frames``.
+    rf_greedy_alpha_strict: float = 0.01
+    #: Sensitive variant (``_a05`` columns): ~11.8% ON detection, 95% single-component —
+    #: more yield for downstream at a modest false-positive cost.
+    rf_greedy_alpha_sens: float = 0.05
 
     # --- surround suppression
     running_threshold_cm_s: float = 1.0
@@ -228,6 +248,7 @@ REFERENCE_CONFIG = MetricConfig(
         "natural_movie": "events",
         "locally_sparse_noise": "dff",           # default changed to events
     }),
+    rf_method="fraction",          # the historical fraction-threshold RF (default now greedy)
     rf_center_scale_bug=True,      # centres compressed by (n-1)/n
     pref_cond_fillna=True,         # all-NaN ROIs report condition 0
     ni_response_frames=None,       # fall back to the recovered time window

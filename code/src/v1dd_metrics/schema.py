@@ -41,8 +41,11 @@ OUTPUT_COLUMNS: Dict[str, Sequence[str]] = {
     "rf_metrics": [
         "roi_unique_id", "mouse", "column", "volume", "plane", "roi", "depth_um",
         "pika_roi_confidence",
+        # canonical = greedy strict (default); *_a05 = greedy sensitive (alpha 0.05)
         "has_rf_on", "has_rf_off", "has_rf_on_or_off",
-        "azimuth_rf_on", "altitude_rf_on", "azimuth_rf_off", "altitude_rf_off"],
+        "azimuth_rf_on", "altitude_rf_on", "azimuth_rf_off", "altitude_rf_off",
+        "has_rf_on_a05", "has_rf_off_a05", "has_rf_on_or_off_a05",
+        "azimuth_rf_on_a05", "altitude_rf_on_a05", "azimuth_rf_off_a05", "altitude_rf_off_a05"],
 }
 
 
@@ -113,6 +116,7 @@ def _roi_confidence(plane) -> np.ndarray:
 
 
 BOOLEAN_COLUMNS = frozenset({"has_rf_on", "has_rf_off", "has_rf_on_or_off",
+                             "has_rf_on_a05", "has_rf_off_a05", "has_rf_on_or_off_a05",
                              "dgw_center_inferred"})
 
 
