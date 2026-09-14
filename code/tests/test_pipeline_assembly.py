@@ -107,8 +107,8 @@ def test_reference_config_divergence_is_reported():
     historical = pl.config_dict(pl.REFERENCE_CONFIG)
     differs = {k for k in used if used[k] != historical[k]}
     assert differs == {
-        "rf_method", "rf_center_scale_bug", "pref_cond_fillna", "ni_response_frames",
-        "lsn_response_frames", "trace_type",
+        "dg_crossval", "rf_method", "rf_center_scale_bug", "pref_cond_fillna",
+        "ni_response_frames", "lsn_response_frames", "trace_type",
         "fit_all_sf", "impute_dgw_center", "ssi_tuning_fit_includes_baseline",
         "lifetime_sparseness_over", "zero_denominator_nan",
     }, f"unexpected divergence set: {sorted(differs)}"

@@ -38,6 +38,25 @@ And **sparseness is not comparable across stimulus sets of different size** — 
 normaliser means the same neurons score 0.74 over 118 images, 0.40 over 12, and 0.26 over
 24 grating conditions. Never put two of those on one axis.
 
+### OSI and DSI are split-half cross-validated
+
+The naive OSI/DSI picked the preferred condition by argmax and measured selectivity at that
+same condition on the same trials, which biases both **upward**: the argmax rides the noise
+peak while the orthogonal and null directions ride their troughs. Measured on this asset the
+bias is large — responsive cells average **+0.2**, and 46% of *all* cells scored naive
+OSI > 0.5 with 57% of those not even responsive (median true OSI 0.16). OSI/DSI now pick the
+preferred condition on one random trial-half and measure on the other, averaged over 200
+splits (`dg_crossval`, on by default; `REFERENCE_CONFIG` keeps the naive form). `gosi` is
+unchanged — it integrates over all directions, so it has no argmax selection to over-fit
+(mean change −0.01). Full analysis in
+[explorations/crossval_osi_dsi.md](explorations/crossval_osi_dsi.md).
+
+This is the largest deliberate move in the asset after `ssi_tuning_fit`: on responsive cells
+windowed OSI drops ~0.64 → ~0.44 and DSI ~0.48 → ~0.28. The values below in "agrees with
+de Vries" are the **naive** figures the current (2026-09-11) asset still carries; the next
+capsule run will ship the lower cross-validated numbers, which no longer line up with a
+naive-computed published range — that is the point, not a regression.
+
 ### A zero denominator is now NaN everywhere
 
 `osi`/`dsi` returned 0 where the surround-suppression indices returned NaN — two
@@ -79,8 +98,10 @@ same event-extraction algorithm.
   against 0.0004 AU spontaneous; `pref_response` medians here are 0.0074 (natural images)
   and 0.0103 (natural movie), 0.0082 over responsive cells only. Same algorithm, same
   units, same order — the strongest cross-dataset agreement available.
-* **Selectivity indices sit in their published range**: full-field medians over responsive
-  cells are `dsi` 0.395, `osi` 0.635, `gosi` 0.293; windowed 0.470 / 0.659 / 0.310.
+* **Selectivity indices sit in their published range** (these are the **naive** values, from
+  the current asset — see the cross-validation note above): full-field medians over responsive
+  cells are `dsi` 0.395, `osi` 0.635, `gosi` 0.293; windowed 0.470 / 0.659 / 0.310. Under
+  cross-validation `osi`/`dsi` drop by ~0.2 while `gosi` holds.
 * **Lifetime sparseness agrees once computed their way** — see above.
 
 ### One name that means two different things

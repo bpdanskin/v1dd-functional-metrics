@@ -10,6 +10,7 @@
 - [Events vs dF/F](explorations/events_vs_dff.md) -- L0 event quality at 6 Hz, per-metric trace choice
 - [RF window and trace](explorations/rf_window_and_trace.md) -- why receptive fields use events at 2 frames
 - [Greedy RF](explorations/greedy_rf.md) -- greedy pixelwise RF (bootstrap + Holm-Šidák) replaces the fraction-threshold method
+- [Cross-validated OSI/DSI](explorations/crossval_osi_dsi.md) -- split-half validation shows naive OSI/DSI carry a +0.2 selection bias (gOSI does not)
 
 ## Notebooks
 

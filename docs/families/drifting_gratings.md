@@ -34,9 +34,25 @@ all orientations scores 0; one responding only at its preferred orientation scor
 response at 180° from preferred. OSI compares across orientations; DSI compares the two
 directions within the preferred orientation.
 
+**OSI and DSI are split-half cross-validated** (`dg_crossval`, on by default). Picking the
+preferred condition by argmax and then measuring selectivity at that same condition on the
+same trials biases both indices **upward** — the argmax rides the noise peak while the
+orthogonal and null directions ride their troughs. On this asset the naive form averages
++0.2 higher on responsive cells and manufactures apparent selectivity for non-responsive
+ones (46% of cells scored naive OSI > 0.5, and 57% of those are not responsive). The
+cross-validated form instead picks the preferred condition on one random half of the trials
+and measures OSI/DSI on the other half, averaged over `dg_crossval_iters` splits (200) with
+a fixed `dg_crossval_seed`. This is (near-)unbiased and folds reliability into the value: an
+unreliable cell's OSI collapses toward zero on its own, so no separate reliability gate is
+needed. The estimate carries an irreducible 8-trial noise floor the seed pins but cannot
+remove. `REFERENCE_CONFIG` sets `dg_crossval=False` for the historical naive metric. See
+[../explorations/crossval_osi_dsi.md](../explorations/crossval_osi_dsi.md).
+
 **gOSI** — global orientation selectivity. The magnitude of the orientation-tuning vector
 normalised by the total response: `|Σ R(θ)·exp(2iθ)| / Σ R(θ)`. Unlike OSI, which reads
 only three directions, this uses all twelve and is sensitive to the shape of the whole curve.
+It is **not** cross-validated: integrating over all directions instead of an argmax leaves it
+with no selection to over-fit, so it carries no upward bias (mean change −0.01 on the asset).
 
 **`pref_dir_mean`** — the circular mean direction, treating responses as weights. Computed
 with `nan_to_num(nan=0)`, so a NaN response at a direction contributes zero weight rather
@@ -53,7 +69,8 @@ Two argmax definitions are computed, deliberately:
 
 1. **`fillna(-1).argmax`** — what `preferred_dir` and `preferred_sf` in the published table
    use, and what surround suppression keys off. An all-NaN ROI reports condition 0.
-2. **NaN-skipping argmax** — what `osi`, `dsi`, and `gosi` use. An all-NaN ROI reports NaN.
+2. **NaN-skipping argmax** — what `gosi` uses, and what the cross-validated `osi`/`dsi` use
+   *within each split* (on the picking half). An all-NaN ROI reports NaN.
 
 With `pref_cond_fillna=False` (the default), both use the NaN-skipping form and agree. The
 historical behaviour is `pref_cond_fillna=True`, where they diverge on all-NaN ROIs: a
@@ -149,12 +166,12 @@ Per-trial running speed is computed by prefix-sum over the running trace, padded
 
 | column | meaning |
 |---|---|
-| `dsi` | direction selectivity index, `(pref − null) / (pref + null)` |
+| `dsi` | direction selectivity index, `(pref − null) / (pref + null)`, split-half cross-validated |
 | `frac_responsive_trials` | fraction of preferred-condition trials beating the spontaneous null |
-| `gosi` | global orientation selectivity, vector-sum magnitude |
+| `gosi` | global orientation selectivity, vector-sum magnitude (not cross-validated) |
 | `is_responsive` | `frac >= 0.50` and `pika_roi_confidence > 0.5` |
 | `lifetime_sparseness` | Vinje & Gallant lifetime sparseness over condition means |
-| `osi` | orientation selectivity index, `(pref − orth) / (pref + orth)` |
+| `osi` | orientation selectivity index, `(pref − orth) / (pref + orth)`, split-half cross-validated |
 | `preferred_dir` | preferred direction in degrees (0–330, 30° steps) |
 | `preferred_sf` | preferred spatial frequency |
 | `pref_dir_mean` | circular-mean direction weighted by response |

@@ -206,6 +206,55 @@ def vonmises_pref_dir(params) -> float:
     return x0 if a0 > a1 else x1
 
 
+def crossval_osi_dsi(
+    ta: np.ndarray,
+    dir_list: np.ndarray,
+    *,
+    n_iter: int = 200,
+    seed: int = 0,
+    zero_to_nan: bool = True,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Split-half cross-validated OSI and DSI, ``(n_rois,)`` each.
+
+    ``ta`` is ``(n_rois, n_dir, n_sf, n_trials)``, NaN-padded. On each of ``n_iter``
+    iterations the trial slots are split in half; the preferred (dir, sf) is picked by
+    finite argmax on one half and OSI/DSI are measured on the other half at that condition,
+    with orthogonal ``(i +/- 3) % n_dir`` and null ``(i + 6) % n_dir`` as in the naive path.
+    The per-iteration values are averaged (finite iterations only). Selecting and measuring
+    on independent halves removes the upward selection bias of the same-trial naive metric.
+    The splits use a dedicated ``seed`` so the result does not depend on call order.
+    """
+    n_rois, n_dir, n_sf, n_trials = ta.shape
+    roi_ix = np.arange(n_rois)
+    s1_osi = np.zeros(n_rois); s1_dsi = np.zeros(n_rois)
+    c_osi = np.zeros(n_rois); c_dsi = np.zeros(n_rois)
+
+    rng = np.random.default_rng(seed)
+    for _ in range(n_iter):
+        perm = rng.permutation(n_trials)
+        a, b = perm[:n_trials // 2], perm[n_trials // 2:]
+        mA = _nanmean(ta[:, :, :, a], axis=3)                 # (n_rois, n_dir, n_sf)
+        mB = _nanmean(ta[:, :, :, b], axis=3)
+        valid = np.isfinite(mA).any(axis=(1, 2))
+        kA = np.where(np.isfinite(mA), mA, -np.inf).reshape(n_rois, -1).argmax(axis=1)
+        pdir, psf = np.divmod(kA, n_sf)
+
+        tunB = mB[roi_ix, :, psf]                             # (n_rois, n_dir), held out
+        prefB = tunB[roi_ix, pdir]
+        nullB = tunB[roi_ix, (pdir + 6) % n_dir]
+        orthB = 0.5 * (tunB[roi_ix, (pdir + 3) % n_dir] + tunB[roi_ix, (pdir - 3) % n_dir])
+        osi = _ratio(prefB - orthB, prefB + orthB, zero_to_nan=zero_to_nan)
+        dsi = _ratio(prefB - nullB, prefB + nullB, zero_to_nan=zero_to_nan)
+        for s1, c, v in ((s1_osi, c_osi, osi), (s1_dsi, c_dsi, dsi)):
+            fin = np.isfinite(v) & valid
+            s1[fin] += v[fin]
+            c[fin] += 1.0
+
+    with np.errstate(invalid="ignore"):
+        return (np.where(c_osi > 0, s1_osi / c_osi, np.nan),
+                np.where(c_dsi > 0, s1_dsi / c_dsi, np.nan))
+
+
 def dg_metrics_from_trials(
     ta: np.ndarray,
     dir_list: np.ndarray,
@@ -256,6 +305,11 @@ def dg_metrics_from_trials(
     zn = config.zero_denominator_nan
     osi = _ratio(pref - orth_r, pref + orth_r, zero_to_nan=zn)
     dsi = _ratio(pref - null_r, pref + null_r, zero_to_nan=zn)
+
+    # Cross-validated OSI/DSI de-bias the same-trial argmax; gosi/preferred_dir stay naive.
+    if config.dg_crossval:
+        osi, dsi = crossval_osi_dsi(ta, dir_list, n_iter=config.dg_crossval_iters,
+                                    seed=config.dg_crossval_seed, zero_to_nan=zn)
 
     theta = np.deg2rad(dir_list.astype(float))
     L_norm = tuning.sum(axis=1)

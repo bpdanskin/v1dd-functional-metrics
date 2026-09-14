@@ -15,8 +15,8 @@ class MetricConfig:
     """Knobs, defaulted to computing the right thing.
 
     Several defaults differ from what reproduces the historical tables —
-    `rf_method`, `rf_center_scale_bug`, `pref_cond_fillna`, `ni_response_frames`,
-    `impute_dgw_center`, and `lsn_response_frames` — and each is documented
+    `dg_crossval`, `rf_method`, `rf_center_scale_bug`, `pref_cond_fillna`,
+    `ni_response_frames`, `impute_dgw_center`, and `lsn_response_frames` — and each is documented
     where it is declared. `fit_all_sf` also differs, but it is a speed knob
     rather than a correction. `REFERENCE_CONFIG` is the historical set, so
     both behaviours are one argument away and which one you asked for is
@@ -134,6 +134,27 @@ class MetricConfig:
     #: more yield for downstream at a modest false-positive cost.
     rf_greedy_alpha_sens: float = 0.05
 
+    # --- drifting-grating selectivity
+    #: Replace naive OSI/DSI with the **split-half cross-validated** value. The naive
+    #: metric picks the preferred condition by argmax and measures selectivity on the same
+    #: trials, which biases OSI/DSI **upward** by ~+0.2 on responsive cells and manufactures
+    #: apparent selectivity for non-responsive ones (46% of cells have naive OSI>0.5; 57% of
+    #: those are not responsive). Cross-validation picks the preferred condition on one trial
+    #: half and measures on the other, averaged over `dg_crossval_iters` random splits, which
+    #: is (near-)unbiased and folds reliability into the value — an unreliable cell's OSI
+    #: collapses toward zero on its own. `gosi`, `preferred_dir`, and `pref_dir_mean` are left
+    #: naive: gOSI has no argmax selection so carries no bias, and the preference should stay
+    #: the deterministic full-data pick. The value carries an irreducible 8-trial noise floor
+    #: the seed pins but cannot remove. `REFERENCE_CONFIG` sets this False (historical naive
+    #: OSI/DSI). See docs/explorations/crossval_osi_dsi.md.
+    dg_crossval: bool = True
+    #: Random trial-splits averaged per ROI. The estimate stabilises within a few hundred;
+    #: 200 costs ~15 s over the whole asset.
+    dg_crossval_iters: int = 200
+    #: Seed for the cross-validation splits, kept separate from the bootstrap `rng` so the
+    #: OSI/DSI value is reproducible independent of call order.
+    dg_crossval_seed: int = 0
+
     # --- surround suppression
     running_threshold_cm_s: float = 1.0
     running_pad_seconds: float = 0.10
@@ -248,6 +269,7 @@ REFERENCE_CONFIG = MetricConfig(
         "natural_movie": "events",
         "locally_sparse_noise": "dff",           # default changed to events
     }),
+    dg_crossval=False,             # historical naive OSI/DSI (default now cross-validated)
     rf_method="fraction",          # the historical fraction-threshold RF (default now greedy)
     rf_center_scale_bug=True,      # centres compressed by (n-1)/n
     pref_cond_fillna=True,         # all-NaN ROIs report condition 0

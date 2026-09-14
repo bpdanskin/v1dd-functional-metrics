@@ -378,6 +378,51 @@ def test_drifting_gratings():
     check("the default does not, so a fast run shows in differs_from_reference_config",
           DEFAULT_CONFIG.fit_all_sf is False)
 
+    print("\n[N] cross-validated OSI/DSI de-bias the naive same-trial argmax")
+    from v1dd_metrics.families.drifting_gratings import crossval_osi_dsi, dg_metrics_from_trials
+    # On the NOISELESS fixture every trial of a condition is identical, so any split's
+    # picking-half mean equals its measuring-half mean: cross-validation must reproduce the
+    # naive value exactly. That is why the analytic checks in [1] survive the default flip.
+    cv_osi, cv_dsi = crossval_osi_dsi(dgw.trial_responses, dgw.dir_list, n_iter=50, seed=0)
+    naive = dg_metrics_from_trials(dgw.trial_responses, dgw.dir_list, dgw.sf_list,
+                                   plane.is_valid, family="drifting_gratings_windowed",
+                                   config=MetricConfig(dg_crossval=False, fit_tuning_curves=False))
+    check("noiseless: cross-validated OSI equals naive to 1e-9",
+          np.allclose(cv_osi, naive["osi"], equal_nan=True, atol=1e-9),
+          f"cv {np.round(cv_osi, 4)} vs naive {np.round(naive['osi'], 4)}")
+    check("published osi already is the cross-validated one (default on)",
+          np.allclose(m.osi.to_numpy(), cv_osi, equal_nan=True, atol=1e-9))
+
+    # With genuine trial noise the naive argmax rides the noise peak, so its OSI/DSI must sit
+    # ABOVE the cross-validated value -- the bias the flag exists to remove. A flat cell
+    # (no true tuning) is the sharpest case: naive selectivity is pure selection artifact.
+    rng_cv = np.random.default_rng(11)
+    N_R = 200
+    noisy = np.abs(rng_cv.normal(0.0, 1.0, size=(N_R, 12, 2, 8)))    # no tuning, all noise
+    nv = dg_metrics_from_trials(noisy, DIRS, SFS, np.ones(N_R, bool),
+                                config=MetricConfig(dg_crossval=False, fit_tuning_curves=False))
+    cvf = dg_metrics_from_trials(noisy, DIRS, SFS, np.ones(N_R, bool),
+                                 config=MetricConfig(dg_crossval=True, dg_crossval_iters=100,
+                                                     fit_tuning_curves=False))
+    check("untuned cells: naive OSI is inflated well above zero",
+          np.nanmean(nv["osi"]) > 0.15, f"mean naive OSI {np.nanmean(nv['osi']):.3f}")
+    check("cross-validation collapses that artifact toward zero",
+          abs(np.nanmean(cvf["osi"])) < 0.1 < np.nanmean(nv["osi"]),
+          f"cv {np.nanmean(cvf['osi']):.3f} vs naive {np.nanmean(nv['osi']):.3f}")
+    check("the same holds for DSI",
+          np.nanmean(cvf["dsi"]) < np.nanmean(nv["dsi"]),
+          f"cv {np.nanmean(cvf['dsi']):.3f} vs naive {np.nanmean(nv['dsi']):.3f}")
+    check("gosi is left naive (no argmax selection, so no bias to remove)",
+          np.allclose(nv["gosi"], cvf["gosi"], equal_nan=True),
+          "the flag must not touch gosi")
+    check("cross-validation is deterministic given the seed",
+          np.allclose(cvf["osi"], dg_metrics_from_trials(
+              noisy, DIRS, SFS, np.ones(N_R, bool),
+              config=MetricConfig(dg_crossval=True, dg_crossval_iters=100,
+                                  fit_tuning_curves=False))["osi"], equal_nan=True))
+    check("REFERENCE_CONFIG keeps the naive metric, the default cross-validates",
+          REFERENCE_CONFIG.dg_crossval is False and DEFAULT_CONFIG.dg_crossval is True)
+
     print("\n[N] locomotion: running modulation across gratings and spontaneous")
     # Synthetic, so every expectation is analytic. build_session() marks the first half of
     # each condition's trials fast and the rest slow, which is what makes a split possible.
