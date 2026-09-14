@@ -135,7 +135,6 @@ When a stimulus is absent, returns `absent_frame` plus `None` for the condition 
 | `pref_img` | preferred image index (from the 118-image catalog), −1 if all-NaN |
 | `pref_response` | mean response to the preferred image |
 | `z_score` | preferred response in SD of the multi-trial spontaneous null |
-| `frac_zero_response` | fraction of conditions with exactly zero mean response |
 | `reliability` | split-half correlation on dF/F (primary) |
 | `reliability_events` | split-half correlation on events (companion) |
 | `n_trials_at_pref` | finite trials at the preferred image |

@@ -14,7 +14,7 @@ from v1dd_metrics.config import MetricConfig
 from v1dd_metrics.families.receptive_fields import (
     _rf_pixel_to_degrees, holm_sidak_reject, receptive_field_metrics)
 from v1dd_metrics.families.surround_suppression import (
-    CONTAINMENT_COLUMNS, _window_coverage, window_containment)
+    CONTAINMENT_COLUMNS, POP_RF_COLUMNS, _window_coverage, window_containment)
 from v1dd_metrics.schema import OUTPUT_COLUMNS, to_output_schema
 
 DT = 0.16504
@@ -235,6 +235,13 @@ def test_window_containment():
           abs(float(c["dgw_rf_overlap_on"][0]) - 1.0) < 1e-12)
     check("distance = analytic hypot(pitch/2, pitch/2)",
           abs(float(c["dgw_rf_distance_on"][0]) - np.hypot(GRID / 2, GRID / 2)) < 1e-12)
+    # population RF: a lone ON field -> pop RF is that field's centre; per-axis distance to
+    # the aperture (here centred at 0,0) is |centre|
+    check("pop RF azimuth equals the lone ON field's centre",
+          abs(float(c["pop_rf_azimuth"][0]) - near[0]) < 1e-9, str(c["pop_rf_azimuth"][0]))
+    check("pop RF per-axis distance = |pop - aperture|",
+          abs(float(c["pop_rf_dis_azimuth"][0]) - abs(near[0])) < 1e-9
+          and abs(float(c["pop_rf_dis_altitude"][0]) - abs(near[1])) < 1e-9)
 
     m = np.ones((1, 2, ROWS, COLS), dtype=np.float32)
     expect = (np.pi * RADIUS ** 2) / ((ROWS * GRID) * (COLS * GRID))
@@ -274,5 +281,5 @@ def test_window_containment():
     except ValueError as e:
         check("raises on an unevenly spaced stimulus grid", "evenly spaced" in str(e))
 
-    check("containment columns are in OUTPUT_COLUMNS, after the aperture centre",
-          OUTPUT_COLUMNS["surround_suppression"][-4:] == CONTAINMENT_COLUMNS)
+    check("containment then pop-RF columns close OUTPUT_COLUMNS",
+          list(OUTPUT_COLUMNS["surround_suppression"][-8:]) == CONTAINMENT_COLUMNS + POP_RF_COLUMNS)

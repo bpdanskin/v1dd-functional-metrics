@@ -82,7 +82,6 @@ metrics frame only (no auxiliary arrays).
 | `pref_img` | preferred frame index (0–3599), −1 if all-NaN |
 | `pref_response` | mean response to the preferred frame |
 | `z_score` | preferred response in SD of the multi-trial spontaneous null |
-| `frac_zero_response` | fraction of frames with exactly zero mean response |
 | `reliability` | split-half correlation on dF/F (primary) |
 | `reliability_events` | split-half correlation on events (companion) |
 | `n_trials_at_pref` | number of finite repeats at the preferred frame |

@@ -18,7 +18,7 @@ OUTPUT_COLUMNS: Dict[str, Sequence[str]] = {
     "natural_images": [
         "roi_unique_id", "mouse", "column", "volume", "plane", "roi", "depth_um",
         "pika_roi_confidence",
-        "frac_responsive_trials", "frac_zero_response", "lifetime_sparseness",
+        "frac_responsive_trials", "lifetime_sparseness",
         "pref_img", "pref_response",
         "z_score", "reliability", "reliability_events", "n_trials_at_pref"],
     "surround_suppression": [
@@ -29,7 +29,8 @@ OUTPUT_COLUMNS: Dict[str, Sequence[str]] = {
         "ssi_stationary_avg_at_pref_sf", "ssi_tuning_fit",
         "dgw_center_azimuth", "dgw_center_elevation", "dgw_center_inferred",
         "dgw_rf_distance_on", "dgw_rf_distance_off",
-        "dgw_rf_overlap_on", "dgw_rf_overlap_off"],
+        "dgw_rf_overlap_on", "dgw_rf_overlap_off",
+        "pop_rf_azimuth", "pop_rf_altitude", "pop_rf_dis_azimuth", "pop_rf_dis_altitude"],
     "roi_summary": [
         "roi_unique_id", "mouse", "column", "volume", "plane", "roi", "depth_um",
         "pika_roi_confidence",
@@ -44,8 +45,10 @@ OUTPUT_COLUMNS: Dict[str, Sequence[str]] = {
         # canonical = greedy strict (default); *_a05 = greedy sensitive (alpha 0.05)
         "has_rf_on", "has_rf_off", "has_rf_on_or_off",
         "azimuth_rf_on", "altitude_rf_on", "azimuth_rf_off", "altitude_rf_off",
+        "rf_on_area", "rf_off_area",
         "has_rf_on_a05", "has_rf_off_a05", "has_rf_on_or_off_a05",
-        "azimuth_rf_on_a05", "altitude_rf_on_a05", "azimuth_rf_off_a05", "altitude_rf_off_a05"],
+        "azimuth_rf_on_a05", "altitude_rf_on_a05", "azimuth_rf_off_a05", "altitude_rf_off_a05",
+        "rf_on_area_a05", "rf_off_area_a05"],
 }
 
 

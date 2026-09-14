@@ -71,6 +71,9 @@ def _has_and_centres(out, suffix, mask, altitudes, azimuths, scale_bug):
         mean_col = (mask * cols_ix).sum(axis=(2, 3)) / denom
     alt = _rf_pixel_to_degrees(mean_row, altitudes, scale_bug)
     azi = _rf_pixel_to_degrees(mean_col, azimuths, scale_bug)
+    # area in deg^2: significant-pixel count x pixel area (pitch_alt * pitch_azi)
+    pix_deg2 = abs((altitudes[1] - altitudes[0]) * (azimuths[1] - azimuths[0]))
+    area = counts * pix_deg2
     has_on, has_off = counts[:, 0] > 0, counts[:, 1] > 0
     out[f"has_rf_on{suffix}"] = has_on
     out[f"has_rf_off{suffix}"] = has_off
@@ -79,6 +82,8 @@ def _has_and_centres(out, suffix, mask, altitudes, azimuths, scale_bug):
     out[f"altitude_rf_on{suffix}"] = np.where(has_on, alt[:, 0], np.nan)
     out[f"azimuth_rf_off{suffix}"] = np.where(has_off, azi[:, 1], np.nan)
     out[f"altitude_rf_off{suffix}"] = np.where(has_off, alt[:, 1], np.nan)
+    out[f"rf_on_area{suffix}"] = np.where(has_on, area[:, 0], np.nan)
+    out[f"rf_off_area{suffix}"] = np.where(has_off, area[:, 1], np.nan)
 
 
 def _design_matrix(images, frames, pixel_on, pixel_off):

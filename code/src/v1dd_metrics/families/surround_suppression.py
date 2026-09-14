@@ -88,7 +88,7 @@ def surround_suppression_metrics(
     frame["dgw_center_azimuth"] = np.full(n_rois, az)
     frame["dgw_center_elevation"] = np.full(n_rois, el)
     frame["dgw_center_inferred"] = np.full(n_rois, bool(center_inferred), dtype=bool)
-    for c in CONTAINMENT_COLUMNS:
+    for c in CONTAINMENT_COLUMNS + POP_RF_COLUMNS:
         if containment is None:
             frame[c] = np.full(n_rois, np.nan)
         else:
@@ -101,6 +101,42 @@ def surround_suppression_metrics(
 
 CONTAINMENT_COLUMNS = ["dgw_rf_distance_on", "dgw_rf_distance_off",
                        "dgw_rf_overlap_on", "dgw_rf_overlap_off"]
+
+# Plane-level population RF (area-weighted mean of each cell's dominant RF centre) and its
+# per-axis distance to the windowed-grating aperture. Broadcast to every ROI in the plane.
+POP_RF_COLUMNS = ["pop_rf_azimuth", "pop_rf_altitude",
+                  "pop_rf_dis_azimuth", "pop_rf_dis_altitude"]
+
+
+def _population_rf(rf_frame):
+    """Area-weighted mean (azimuth, altitude) of the dominant RF centre across the plane.
+
+    The dominant subfield per ROI is whichever of ON/OFF has the larger area (or the only
+    one present); weight is that area. Falls back to equal weights if area columns are
+    absent (test frames). Returns (nan, nan) if no ROI has a receptive field.
+    """
+    azi_on = rf_frame["azimuth_rf_on"].to_numpy(dtype=np.float64)
+    alt_on = rf_frame["altitude_rf_on"].to_numpy(dtype=np.float64)
+    azi_off = rf_frame["azimuth_rf_off"].to_numpy(dtype=np.float64)
+    alt_off = rf_frame["altitude_rf_off"].to_numpy(dtype=np.float64)
+    if "rf_on_area" in rf_frame.columns:
+        area_on = rf_frame["rf_on_area"].to_numpy(dtype=np.float64)
+        area_off = rf_frame["rf_off_area"].to_numpy(dtype=np.float64)
+    else:                                        # equal weight per present subfield
+        area_on = np.where(np.isfinite(alt_on), 1.0, np.nan)
+        area_off = np.where(np.isfinite(alt_off), 1.0, np.nan)
+    ao = np.nan_to_num(area_on, nan=-1.0)
+    af = np.nan_to_num(area_off, nan=-1.0)
+    use_on = ao >= af
+    dom_area = np.where(use_on, ao, af)
+    dom_azi = np.where(use_on, azi_on, azi_off)
+    dom_alt = np.where(use_on, alt_on, alt_off)
+    keep = dom_area > 0
+    if not keep.any():
+        return np.nan, np.nan
+    w = dom_area[keep]
+    return (float(np.sum(dom_azi[keep] * w) / w.sum()),
+            float(np.sum(dom_alt[keep] * w) / w.sum()))
 
 
 def _window_coverage(azimuths, altitudes, center, radius: float, sub: int = 8):
@@ -151,13 +187,21 @@ def window_containment(
     if thresh is None:
         thresh = config.rf_frac_thresh
     n_rois = len(rf_frame)
-    out = {c: np.full(n_rois, np.nan) for c in CONTAINMENT_COLUMNS}
+    out = {c: np.full(n_rois, np.nan) for c in CONTAINMENT_COLUMNS + POP_RF_COLUMNS}
+
+    # population RF is aperture-independent, so it is set even when no aperture is recorded
+    pop_azi, pop_alt = _population_rf(rf_frame)
+    out["pop_rf_azimuth"] = np.full(n_rois, pop_azi)
+    out["pop_rf_altitude"] = np.full(n_rois, pop_alt)
+
     cov = _window_coverage(lsn["azimuths"], lsn["altitudes"], center,
                            config.dgw_window_radius_deg)
-    if cov is None:                       # no recorded aperture -> everything stays NaN
+    if cov is None:                       # no recorded aperture -> distances/overlap stay NaN
         return pd.DataFrame(out, index=rf_frame.index)
 
     caz, cel = float(center[0]), float(center[1])
+    out["pop_rf_dis_azimuth"] = np.full(n_rois, abs(pop_azi - caz))
+    out["pop_rf_dis_altitude"] = np.full(n_rois, abs(pop_alt - cel))
     rf_map = np.asarray(rf_map)
     for i, sub in enumerate(("on", "off")):
         out[f"dgw_rf_distance_{sub}"] = np.hypot(
