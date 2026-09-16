@@ -130,8 +130,6 @@ def _walk_sessions(root: Path) -> Tuple[List[Path], List[Path]]:
     hdf5_paths: List[Path] = []
     for dirpath, dirnames, filenames in os.walk(root):
         here = Path(dirpath)
-        # Collect the stores before pruning them -- a `.nwb.zarr` *is* a session, it is
-        # only its interior that is uninteresting.
         zarr_paths.extend(here / d for d in dirnames if d.endswith(".nwb.zarr"))
         dirnames[:] = [d for d in dirnames if not d.endswith(".nwb.zarr")]
         hdf5_paths.extend(here / f for f in filenames if f.endswith(".nwb"))
@@ -492,7 +490,7 @@ def _pixel_codes(images: np.ndarray) -> Dict[str, Any]:
     out: Dict[str, Any] = {"pixel_values": values}
     if len(values) == 3:
         out["pixel_off"], out["pixel_gray"], out["pixel_on"] = values
-    elif len(values) == 2:                      # no background pixels in this template
+    elif len(values) == 2:
         out["pixel_off"], out["pixel_on"] = values
         out["pixel_gray"] = None
     else:
@@ -562,10 +560,6 @@ def load_roi_masks(nwbfile, plane) -> RoiMasks:
         source, shape = "pixel_mask", None
         column = ps["pixel_mask"]
 
-        # The ragged column is small, so read it whole and slice in memory. Reading it
-        # per ROI is one store access per ROI -- about 450 per plane -- and cost ~45 %
-        # of a session's wall time. The per-ROI path below is kept as a fallback and is
-        # taken whenever the flat form does not check out.
         flat = ends = None
         bulk = False
         try:
@@ -587,11 +581,11 @@ def load_roi_masks(nwbfile, plane) -> RoiMasks:
 
         for entry in entries:
             entry = np.asarray(entry)
-            if entry.dtype.names:                      # named fields: x, y, weight
+            if entry.dtype.names:
                 x, y = entry["x"], entry["y"]
                 if "weight" in entry.dtype.names and not np.allclose(entry["weight"], 1.0):
                     weights_one = False
-            else:                                      # unstructured (n, 3) as (x, y, w)
+            else:
                 arr = entry.reshape(len(entry), -1)
                 x, y = arr[:, 0], arr[:, 1]
                 if arr.shape[1] > 2 and not np.allclose(arr[:, 2], 1.0):

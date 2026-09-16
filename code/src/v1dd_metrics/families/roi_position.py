@@ -39,16 +39,15 @@ def centroids(masks) -> Dict[str, np.ndarray]:
 
     The centroid is the unweighted mean over in-mask pixels. That is not a choice this
     asset forces us to make: ``pixel_mask`` weights are all exactly 1 and ``image_mask``
-    is binary, so weighted and unweighted agree.
+    is binary, so weighted and unweighted agree. Sums are taken with ``bincount`` over an
+    ROI index, not ``reduceat`` over offsets: ``reduceat`` returns the element at a
+    zero-width segment rather than 0, corrupting an empty ROI and its neighbour.
     """
     off = np.asarray(masks.offsets)
     counts = np.diff(off).astype(np.int64)
     n_rois = len(counts)
     empty = counts == 0
 
-    # bincount over an ROI index rather than reduceat over offsets: reduceat returns the
-    # *element* at a zero-width segment instead of 0, so an ROI with no surviving pixels
-    # both gets a bogus centroid and corrupts its neighbours.
     roi_index = np.repeat(np.arange(n_rois), counts)
     sum_col = np.bincount(roi_index, weights=np.asarray(masks.col, float),
                           minlength=n_rois)
@@ -101,7 +100,6 @@ def assign_columns(centers: Mapping[int, Sequence[float]]) -> dict:
                 "note": f"need {N_GRID_COLUMNS + 1} columns with a centre, have {len(cols)}"}
 
     pts = {c: np.asarray(centers[c], dtype=float) for c in cols}
-    # the centre column is the one nearest the centroid of the rest
     def offness(c):
         others = np.stack([pts[k] for k in cols if k != c])
         return float(np.linalg.norm(pts[c] - others.mean(axis=0)))
@@ -113,7 +111,6 @@ def assign_columns(centers: Mapping[int, Sequence[float]]) -> dict:
     for perm in itertools.permutations(range(N_GRID_COLUMNS)):
         target = np.stack([np.array(QUADRANTS[q]) * GRID_SPAN_UM for q in perm])
         source = np.stack([rel[c] for c in rest])
-        # one isotropic scale, no rotation: degrees to micrometres
         denom = float((source * source).sum())
         scale = float((source * target).sum() / denom) if denom else 0.0
         resid = float(np.sqrt(((source * scale - target) ** 2).sum(axis=1).mean()))
@@ -124,10 +121,6 @@ def assign_columns(centers: Mapping[int, Sequence[float]]) -> dict:
     assignment: Dict[int, Optional[int]] = {centre: None}
     assignment.update({c: q for c, q in zip(rest, perm)})
 
-    # Per-axis scales, reported because a single isotropic one hides the thing that
-    # matters: the apertures separate the columns far better in azimuth than in
-    # elevation, so this layout is close to one-dimensional. A large ratio here means the
-    # second grid axis is not actually constrained by the data.
     target = np.stack([np.array(QUADRANTS[q]) * GRID_SPAN_UM for q in perm])
     source = np.stack([rel[c] for c in rest])
     per_axis = []

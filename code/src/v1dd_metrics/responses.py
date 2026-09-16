@@ -24,9 +24,6 @@ __all__ = [
 ]
 
 
-# ------------------------------------------------------------------ the primitive
-
-
 def prefix_sums(traces: np.ndarray) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """Cumulative sums over time, for constant-cost window means.
 
@@ -83,9 +80,6 @@ def window_means(
         return total / n
 
 
-# ------------------------------------------------------------------ sweep responses
-
-
 def sweep_responses(
     traces: np.ndarray,
     timestamps: np.ndarray,
@@ -114,9 +108,6 @@ def sweep_responses(
         out[sl] = r
 
     return out
-
-
-# ------------------------------------------------------------------ bootstrap null
 
 
 def sweep_responses_frames(
@@ -186,7 +177,7 @@ def spontaneous_null(
         start_pad = -b0
 
     lo = _nearest_index(timestamps, spont_start) + start_pad
-    hi = _nearest_index(timestamps, spont_stop) - r1  # exclusive, as np.random.randint
+    hi = _nearest_index(timestamps, spont_stop) - r1
     if hi <= lo:
         raise ValueError(
             f"spontaneous block [{spont_start:.1f}, {spont_stop:.1f}] s is too short for "
@@ -212,9 +203,6 @@ def spontaneous_null(
     return out.T
 
 
-# ------------------------------------------------------------------ trial arrays
-
-
 def trial_array(
     sweep_resp: np.ndarray,
     condition: np.ndarray,
@@ -238,7 +226,6 @@ def trial_array(
     if condition.size and condition.min() < 0:
         raise ValueError("condition codes must be non-negative")
 
-    # stable sort keeps time order inside each condition group
     order = np.argsort(condition, kind="stable")
     codes = condition[order]
 
@@ -254,9 +241,6 @@ def trial_array(
     keep = trial < n_trials
     out[codes[keep], trial[keep]] = sweep_resp[order[keep]]
     return out
-
-
-# ------------------------------------------------------------------ reductions
 
 
 def frac_trials_above_null(
@@ -279,7 +263,7 @@ def frac_trials_above_null(
 
     for s in range(0, n_rois, block_rois):
         sl = slice(s, min(s + block_rois, n_rois))
-        r = trial_resp[sl]                                    # (k, n_trials)
+        r = trial_resp[sl]
         p = (null_single[sl][:, None, :] > r[:, :, None]).mean(axis=2)
         sig = np.where(np.isnan(r), np.nan, (p < p_thresh).astype(np.float64))
         with np.errstate(invalid="ignore"):
@@ -345,7 +329,7 @@ def si_permutation_test(
         for s in range(0, n_shuffles, block):
             k = min(block, n_shuffles - s)
             xs = np.broadcast_to(trial_responses, (k, n_rois, n_dir, n_trial)).copy()
-            xs = rng.permuted(xs, axis=2)          # permute directions per (roi, trial)
+            xs = rng.permuted(xs, axis=2)
             ts = _nanmean_quiet(xs, axis=-1)
             for m, p in phase.items():
                 exceed[m] += (true[m] < _vector_strength(ts, p)).sum(axis=0)
@@ -385,7 +369,7 @@ def trial_reliability(ta: np.ndarray, min_conditions: int = 3) -> np.ndarray:
         a_all = ta[:, i, :]
         for j in range(i + 1, n_trials):
             b_all = ta[:, j, :]
-            both = np.isfinite(a_all) & np.isfinite(b_all)      # (n_cond, n_rois)
+            both = np.isfinite(a_all) & np.isfinite(b_all)
             n = both.sum(axis=0)
             ok = n >= min_conditions
             if not ok.any():
@@ -397,7 +381,6 @@ def trial_reliability(ta: np.ndarray, min_conditions: int = 3) -> np.ndarray:
             da = np.where(both, a_all - ma, 0.0)
             db = np.where(both, b_all - mb, 0.0)
             va, vb = (da * da).sum(axis=0), (db * db).sum(axis=0)
-            # a flat trial has no correlation to give -- skip the pair for that ROI
             usable = ok & (va > 0) & (vb > 0)
             if not usable.any():
                 continue

@@ -90,8 +90,10 @@ sets of different size.
 | `run_corr_dff` | — | done in `roi_quality`, on dF/F, no state split |
 | `*_n_trials_at_pref` | — | done for `ni` / `ni12` / `nm` |
 
-The wide table is therefore **85 columns**, not 81: `run_corr_dff` plus
-`n_trials_at_pref` on each of the three natural-stimulus families.
+The wide table was **85 columns** at this 2026-09-03 snapshot (`run_corr_dff` plus
+`n_trials_at_pref` on each of the three natural-stimulus families). It is now **110** (9
+identity + 101 metric) after the later events/greedy-RF/cross-validated-OSI-DSI/population-RF
+overhaul, minus the pruned `frac_zero_response` — see [[project-status]] "Current state".
 
 **Measured 2026-09-03**, once the replay learned to walk planes: `ssi_tuning_fit` moves
 on **98 % of ROIs with a fitted curve** (36,323 of 37,016), median 0.3291 -> 0.3564,

@@ -69,9 +69,6 @@ DATA_SUMMARY = (
 )
 
 
-# ------------------------------------------------------------------ helpers
-
-
 def _read_json(path: Path) -> Dict[str, Any]:
     if not path.is_file():
         raise FileNotFoundError(f"expected {path}")
@@ -137,9 +134,6 @@ def _consistent(sessions: List[Path], filename: str, keys: Tuple[str, ...]) -> D
     return first
 
 
-# ------------------------------------------------------------------ builders
-
-
 def build_subject(sessions: List[Path], strict: bool) -> Tuple[Optional[Subject], Path]:
     """Inherit subject.json, cross-checking that every session names the same animal.
 
@@ -186,7 +180,6 @@ def build_data_description(sessions: List[Path], creation_time: datetime,
                  "subject_id", "license", "group", "restrictions")
     kwargs = {k: raw[k] for k in inherited if raw.get(k) is not None}
 
-    # Every input session, by the name it calls itself, so the chain back is exact.
     source_data, tags = [], set()
     for session in sessions:
         sraw = _read_json(session / "data_description.json")
@@ -200,8 +193,6 @@ def build_data_description(sessions: List[Path], creation_time: datetime,
         modalities=MODALITIES,
         source_data=source_data,
         data_summary=DATA_SUMMARY,
-        # The union of the inputs' tags: the derived asset spans every column and volume
-        # its inputs covered, so inheriting one session's pair would be wrong.
         tags=sorted(tags) or None,
     )
     try:
@@ -221,21 +212,16 @@ def build_processing(asset_dir: Path, sessions: List[Path], input_asset: Path,
 
     Settings come from ``provenance.json``, which the pipeline already
     writes — re-deriving them here would create a second source of truth that could
-    disagree with the asset it describes.
+    disagree with the asset it describes. ``parameters`` is passed as a plain dict rather
+    than a ``GenericModel``: the model form makes the schema's ``AssetPath`` walker recurse
+    without a cycle guard until it overflows the stack.
     """
     prov = _read_json(asset_dir / "provenance.json")
 
     end_time = datetime.fromisoformat(prov["generated_utc"])
     if start_time is None:
-        # The provenance records when it was written and how long the loop took.
         start_time = end_time - timedelta(seconds=float(prov.get("wall_seconds") or 0.0))
 
-    # A plain dict, not GenericModel(**...). The field coerces either, but constructing
-    # the model directly makes `recursive_check_paths` -- the schema's AssetPath walker,
-    # which follows any object exposing __dict__ and has no cycle guard -- recurse until
-    # it blows the stack. Passing a dict lets pydantic build the model on its own terms
-    # and the walker terminates. Structured and queryable either way, so the whole config
-    # travels rather than a summary of it.
     parameters = dict(
         seed=prov.get("seed"),
         n_sessions=prov.get("n_sessions"),
@@ -244,7 +230,6 @@ def build_processing(asset_dir: Path, sessions: List[Path], input_asset: Path,
         complete_asset=prov.get("complete_asset"),
         session_filter=prov.get("session_filter"),
         metric_config=prov.get("config"),
-        # Every setting that departs from the historical pipeline, and what it was.
         differs_from_reference_config=prov.get("differs_from_reference_config"),
         packages=(prov.get("environment") or {}).get("packages"),
     )
@@ -262,12 +247,11 @@ def build_processing(asset_dir: Path, sessions: List[Path], input_asset: Path,
             parameters=parameters,
             input_data=[DataAsset(name=s.name, url=f"file://{s}") for s in sessions],
         ),
-        # Relative to the metadata directory: the tables sit beside these sidecars.
         output_path=".",
         notes=(
             f"Computed from {prov.get('n_sessions')} sessions / {prov.get('n_planes')} "
-            f"imaging planes. Deconvolved events for every family except receptive "
-            f"fields, which use dF/F with a subtracted baseline. Responsiveness is "
+            f"imaging planes. Deconvolved events for every family, including receptive "
+            f"fields (greedy pixelwise method). Responsiveness is "
             f"bootstrapped against each ROI's own spontaneous block, so the seed is "
             f"load-bearing and is recorded in the parameters."
         ),
@@ -281,8 +265,6 @@ def build_processing(asset_dir: Path, sessions: List[Path], input_asset: Path,
             stage=ProcessStage.ANALYSIS,
             experimenters=experimenters,
             start_date_time=end_time,
-            # The suite's own duration, so the record is not open-ended. AIND allows a
-            # null end, but a process with no end reads as one that never finished.
             end_date_time=end_time + timedelta(
                 seconds=float(validation.get("seconds") or 0.0)),
             code=Code(url=REPO_URL, version=_git_commit(repo),
@@ -331,9 +313,6 @@ def _validation_summary(validation_dir: Optional[Path]) -> Optional[Dict[str, An
             "seconds": t.get("seconds")}
 
 
-# ------------------------------------------------------------------ entry point
-
-
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -376,7 +355,6 @@ def main(argv: Optional[List[str]] = None) -> int:
                          if p.get("name")]
         log.info("experimenters not given; inheriting investigators %s", experimenters)
 
-    # --- subject
     subject, subject_src = build_subject(sessions, args.strict)
     if subject is None:
         shutil.copyfile(subject_src, asset_dir / "subject.json")
@@ -385,13 +363,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         subject.write_standard_file(output_directory=asset_dir)
         log.info("wrote subject.json (subject_id %s)", subject.subject_id)
 
-    # --- data description
     dd = build_data_description(sessions, creation_time, asset_dir.name)
     dd.write_standard_file(output_directory=asset_dir)
     log.info("wrote data_description.json (%s, %d source asset(s))",
              dd.name, len(dd.source_data))
 
-    # --- processing
     proc = build_processing(asset_dir, sessions, args.input_asset, experimenters,
                             start_time, args.validation_dir or args.results_dir, repo)
     proc.write_standard_file(output_directory=asset_dir)

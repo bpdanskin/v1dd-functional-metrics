@@ -51,7 +51,7 @@ def natural_movie_metrics(
     n_repeats = int(np.bincount(frames).max())
     ta = tr.trial_array(sweeps, frames, n_trials=n_repeats, n_conditions=len(frame_ids))
 
-    mean_resp = _nanmean(ta, axis=1)                       # (n_frames, n_rois)
+    mean_resp = _nanmean(ta, axis=1)
     n_rois = plane.n_rois
     roi_ix = np.arange(n_rois)
 
@@ -61,8 +61,7 @@ def natural_movie_metrics(
     pref_response = np.where(all_nan, np.nan, mean_resp[pref_idx, roi_ix])
     pref_img = np.where(all_nan, -1, frame_ids[pref_idx])
 
-    # fraction of repeats with any response at the preferred frame
-    pref_trials = ta[pref_idx, :, roi_ix]                  # (n_rois, n_repeats)
+    pref_trials = ta[pref_idx, :, roi_ix]
     sig = np.where(np.isfinite(pref_trials), (pref_trials > 0).astype(float), np.nan)
     frac_responsive = _nanmean(sig, axis=1)
 

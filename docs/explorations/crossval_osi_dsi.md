@@ -87,8 +87,11 @@ metric" — the unreliable cells self-report as un-selective rather than needing
 gate — and it retires a metric that currently labels a non-responsive plurality as selective.
 If the per-cell noise of the CV value is a concern, the fallback is to **keep naive OSI/DSI
 but add the CV columns alongside** (additive, like the greedy `_a05` variant), and let
-downstream choose; that trades compactness for determinism. The decision is yours — this
-exploration is not wired into the pipeline.
+downstream choose; that trades compactness for determinism.
+
+**Adopted.** Option (a) shipped as the default: `dg_crossval=True` replaces `osi`/`dsi` with
+the cross-validated value (gOSI left naive), `REFERENCE_CONFIG` keeps the naive form. See
+[../families/drifting_gratings.md](../families/drifting_gratings.md).
 
 ## If option (a) is chosen — implementation notes
 

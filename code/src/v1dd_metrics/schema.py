@@ -42,7 +42,6 @@ OUTPUT_COLUMNS: Dict[str, Sequence[str]] = {
     "rf_metrics": [
         "roi_unique_id", "mouse", "column", "volume", "plane", "roi", "depth_um",
         "pika_roi_confidence",
-        # canonical = greedy strict (default); *_a05 = greedy sensitive (alpha 0.05)
         "has_rf_on", "has_rf_off", "has_rf_on_or_off",
         "azimuth_rf_on", "altitude_rf_on", "azimuth_rf_off", "altitude_rf_off",
         "rf_on_area", "rf_off_area",
@@ -52,7 +51,6 @@ OUTPUT_COLUMNS: Dict[str, Sequence[str]] = {
 }
 
 
-# Families that publish an identical column set share one entry.
 OUTPUT_COLUMNS["drifting_gratings_windowed"] = OUTPUT_COLUMNS["drifting_gratings_full"]
 OUTPUT_COLUMNS["natural_images_12"] = OUTPUT_COLUMNS["natural_images"]
 OUTPUT_COLUMNS["natural_movie"] = OUTPUT_COLUMNS["natural_images"]
@@ -76,8 +74,6 @@ def roi_frame(plane, mouse: Optional[str] = None) -> pd.DataFrame:
     `(column, volume, plane, roi)`, never on either string.**
     """
     n = plane.n_rois
-    # The mouse comes from the file, not from a constant: this pipeline is expected to
-    # run on other animals. `mouse` overrides only when a caller genuinely knows better.
     mouse_num = (mouse or "").lstrip("M") or getattr(plane, "mouse_id", "")
     if not mouse_num:
         raise ValueError(
@@ -95,17 +91,9 @@ def roi_frame(plane, mouse: Optional[str] = None) -> pd.DataFrame:
         "volume": [plane.volume] * n,
         "plane": np.full(n, plane.plane, dtype=int),
         "roi": plane.roi.astype(int),
-        # Physical depth, which (column, volume, plane) only encodes implicitly. NaN when
-        # the file does not carry it -- no metric depends on it.
         "depth_um": np.full(n, getattr(plane, "depth_um", None)
                             if getattr(plane, "depth_um", None) is not None else np.nan,
                             dtype=float),
-        # Segmentation confidence, emitted so consumers can see which ROIs the pipeline
-        # treated as unreliable. Without it, low-confidence ROIs are neither dropped nor
-        # labelled: `preferred_dir`, the `ssi*` columns and every receptive-field column
-        # are suppressed for them, but `osi`, `dsi`, `lifetime_sparseness` and the natural
-        # scene metrics are populated as usual, so they enter any population average
-        # unnoticed. `is_valid` is this column > 0.5.
         "pika_roi_confidence": _roi_confidence(plane),
     })
 
@@ -137,12 +125,12 @@ def to_output_schema(df: pd.DataFrame, family: str) -> pd.DataFrame:
     out["volume"] = out["volume"].astype(str)
     out["plane"] = out["plane"].astype(int)
     out["roi"] = out["roi"].astype(int)
-    if "pref_img" in out:                        # published uses int with a -1 sentinel
+    if "pref_img" in out:
         out["pref_img"] = out["pref_img"].fillna(-1).astype(int)
-    if "is_responsive" in out:                   # published writes float 0.0/1.0
+    if "is_responsive" in out:
         out["is_responsive"] = out["is_responsive"].astype(float)
     for c in BOOLEAN_COLUMNS:
-        if c in out:                             # published writes True/False
+        if c in out:
             out[c] = out[c].astype(bool)
     return out
 

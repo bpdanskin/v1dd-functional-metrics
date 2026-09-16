@@ -53,7 +53,7 @@ def natural_images_metrics(
         sweeps = tr.sweep_responses(traces, plane.timestamps, starts, window, None)
     ta = tr.trial_array(sweeps, code, n_trials=n_trials, n_conditions=len(image_ids))
 
-    mean_resp = _nanmean(ta, axis=1)                        # (n_images, n_rois)
+    mean_resp = _nanmean(ta, axis=1)
     n_rois = plane.n_rois
     roi_ix = np.arange(n_rois)
 
@@ -67,7 +67,7 @@ def natural_images_metrics(
         n_boot=config.other_n_boot, n_means=1, rng=rng,
         memory_budget_mb=config.memory_budget_mb,
     )
-    pref_trials = ta[pref_idx, :, roi_ix]                   # (n_rois, n_trials)
+    pref_trials = ta[pref_idx, :, roi_ix]
     frac = tr.frac_trials_above_null(pref_trials, null_single, p_thresh=config.sig_p_thresh)
 
     null_multi = tr.spontaneous_null(

@@ -271,9 +271,10 @@ the ground truth simulation shows it is at least partly detector artefact.
 Changes made: `reliability` primary switched from events to dF/F (events
 companion shipped as `reliability_events`); NI/NI12 response window
 widened from 2 to 3 frames to reduce zero-inflation; `frac_zero_response`
-added per family to quantify remaining detector-driven zeros; RF trace
-type switched from dF/F to events and response window narrowed from 4 to
-2 frames based on the window/trace comparison (see
+was added per family to quantify remaining detector-driven zeros and
+**later pruned** once the trace-type decision was settled (`reliability_events`
+kept); RF trace type switched from dF/F to events and response window
+narrowed from 4 to 2 frames based on the window/trace comparison (see
 [explorations/rf_window_and_trace.md](rf_window_and_trace.md)).
 
 

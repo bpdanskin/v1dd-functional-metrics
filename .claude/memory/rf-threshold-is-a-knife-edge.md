@@ -1,15 +1,20 @@
 ---
 name: rf-threshold-is-a-knife-edge
-description: "rf_frac_thresh = 0.25 sits exactly on an achievable value of a discrete map, so 17% of ROIs have a pixel on the boundary and their centres are unstable to the smallest representable change."
+description: "APPLIES TO rf_method='fraction' ONLY (reference method): rf_frac_thresh = 0.25 sits exactly on an achievable value of a discrete map, so 17% of ROIs have a pixel on the boundary and their centres are unstable. The default greedy RF has no threshold and is stable."
 metadata:
   node_type: memory
   type: project
-  modified: 2026-09-03
+  modified: 2026-09-15
 ---
+
+**Scope: `rf_method="fraction"` only.** This is the reference method (REFERENCE_CONFIG); the
+**default is now greedy RF**, whose detection is a Holm-Šidák-corrected significance test with
+no fraction threshold, so its centres are stable and this whole note does not apply to the
+shipped asset. Kept because the fraction method still runs under REFERENCE_CONFIG / array replay.
 
 Found 2026-09-03 while building the receptive-field replay. **Not a defect in this code** --
 the centres reproduce from the shipped maps *bit-exactly* -- but a stability property of
-the metric that anyone using RF centres needs to know.
+the fraction metric that anyone using its RF centres needs to know.
 
 ## The map is discrete, and the threshold lands on it
 

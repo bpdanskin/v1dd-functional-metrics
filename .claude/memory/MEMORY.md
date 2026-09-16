@@ -5,15 +5,15 @@
 - [The code-version stamp ladder](code-version-stamp-ladder.md) — why the pipeline refuses to start without one, and the malformed value that shipped.
 - [Array replay validates offline](array-replay-validates-offline.md) — the shipped arrays let rewritten metric code be checked with no capsule; three exact relationships.
 - [Fresh-start metric changes](fresh-start-metric-changes.md) — four corrections the fork could not make, two deferred columns, and the evidence for each.
-- [Metric cautions](metric-cautions.md) — sparseness scaling, RF area, the 67 % low-confidence session, aperture geometry, the colliding ROI id.
+- [Metric cautions](metric-cautions.md) — sparseness scaling, RF area (now usable under greedy), the 67 % low-confidence session, aperture geometry, the colliding ROI id.
 - [Correlations are a separate pipeline](correlations-are-a-separate-pipeline.md) — decided 2026-09-03, for shape and size reasons.
 - [Von Mises fit conditioning](vonmises-fit-conditioning.md) — why the tuning fit is expensive (k unbounded inside an exponential), three refuted hypotheses, and what to try.
 - [Test suite shape](test-suite-shape.md) — why some ported files are one test, the two shapes that must both be clean, and what was dropped.
-- [The RF threshold is a knife edge](rf-threshold-is-a-knife-edge.md) — 0.25 is exactly 11/44, so 17% of ROIs have a pixel on the boundary and their centres are unstable.
+- [The RF threshold is a knife edge](rf-threshold-is-a-knife-edge.md) — `rf_method="fraction"` only (the reference method): 0.25 is exactly 11/44, so 17% of ROIs have a pixel on the boundary and their centres are unstable. The default greedy RF has no threshold.
 - [Two anomalous sessions](two-anomalous-sessions.md) — col4/vol1 and col2/vol5 account for nearly every exception; provenance to chase upstream.
 - [The column layout is one-dimensional](column-layout-is-one-dimensional.md) — column 1 is the centre, but the apertures constrain azimuth only; two anatomical frames ship side by side.
 - [Reference materials](reference-materials.md) — where the white paper, the de Vries paper and the fork's notebooks live, and what each is good for.
 - [Measuring runtime](measuring-runtime.md) — two wrong wall-clock claims, the three timers that got confused, and where the real numbers now live.
 - [Events vs dF/F study (done)](queued-events-vs-dff-study.md) — completed 2026-09-09; L0 detects 1 AP at ~4% regardless of rate; docs/events_vs_dff.md has per-metric trace recommendations.
 - [Data explorer artifact](data-explorer-artifact.md) — 39,407-ROI 3D Plotly scatter with wireframe boxes, hide-null, anatomical labels. Published and in docs/.
-- [Queued: NI stimulus images](queued-ni-stimulus-images.md) — next capsule run: extract 118+12 natural images from NWB, save as NPZ for quick reference.
+- [NI stimulus images (done)](queued-ni-stimulus-images.md) — extracted via extract_ni_images.py to data/ni_stimulus_images.npz; pixel-identical across sessions.

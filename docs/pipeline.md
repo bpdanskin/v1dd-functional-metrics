@@ -96,24 +96,34 @@ python code/validation/replay_reference.py --asset <a shipped asset> --n-fits 20
 ```
 
 This replays the shipped arrays through the current code and compares against the shipped
-columns: seven drifting-gratings metrics for each grating type, and all eight `ssi_*`
+columns: the argmax drifting-gratings metrics for each grating type, and all eight `ssi_*`
 columns, which need nothing the asset does not already carry — `dg{w,f}_trials` for the
 responses, `dg{w,f}_running` for the state split, `dg{w,f}_params` for the fitted curve.
 Surround suppression is walked plane by plane, as production does, because running speeds
 have no ROI axis and key on the plane.
 
-Receptive fields replay from `rf_maps`: `has_rf_on/off`, the four ON/OFF centres, and the
-four `dgw_rf_*` containment columns, with aperture coverage computed once per distinct
-centre. The two sessions recording no centre fall into their own group, where coverage is
-undefined and every containment column must come out NaN — an edge case nothing else
-exercises against real data.
+`replay_reference.py` targets a **`REFERENCE_CONFIG`** asset: it replays `rf_maps` (the
+fraction method) and the naive `osi`/`dsi`. Under the default config those two differ —
+receptive fields ship the greedy `rf_sta`/`strict_mask` archive rather than `rf_maps`, and
+`osi`/`dsi` are cross-validated (deterministic only with the recorded `dg_crossval_seed`) —
+so replaying a default-config asset is a pending update to the tool.
+
+Receptive fields (fraction/reference) replay from `rf_maps`: `has_rf_on/off`, the four
+ON/OFF centres, and the four `dgw_rf_*` containment columns, with aperture coverage computed
+once per distinct centre. The two sessions recording no centre fall into their own group,
+where coverage is undefined and every containment column must come out NaN — an edge case
+nothing else exercises against real data.
 
 Not replayable, and reported as skipped: anything needing the continuous trace —
 responsiveness, spontaneous rates, `run_corr_dff` — because no time series ships in the
 asset; and natural movie, which ships no per-trial array. Natural images are *partly*
 replayable from `condition_means` and have not been done yet.
 
-### The receptive-field threshold is a knife edge
+### The receptive-field threshold is a knife edge (fraction method only)
+
+This applies to `rf_method="fraction"` (the reference method); the default greedy RF has no
+such threshold — detection is a corrected significance test, and the shipped centres come
+from the greedy `strict_mask`.
 
 The centres reproduce **bit-exactly**, but their noise floor is enormous: perturbing the
 stored map by half a float32 ULP moves ~30 % of centres, worst case 60° of azimuth. The
@@ -161,7 +171,7 @@ python -m pytest                      # from the repo root
 python code/validation/run_tests.py <dir>   # same, plus a tests.json summary
 ```
 
-57 tests, 523 named checks. The JSON summary exists because the run happens where the
+80 tests, ~590 named checks. The JSON summary exists because the run happens where the
 data is and the result is read somewhere else: `metadata.py` reads it to record that
 checking happened, and by then the capsule log is thousands of lines long.
 
@@ -190,8 +200,9 @@ shape, so a line-by-line port would have tested the old design. They are now
 
 Useful as assertions because any drift in them is unambiguous:
 
-* thresholding `rf_maps` at `rf_frac_thresh` (0.25) reproduces `has_rf_on` / `has_rf_off`
-  for **100 %** of ROIs;
+* under `rf_method="fraction"`, thresholding `rf_maps` at `rf_frac_thresh` (0.25) reproduces
+  `has_rf_on` / `has_rf_off` for **100 %** of ROIs (under the default greedy method `has_rf_*`
+  comes from `strict_mask` instead);
 * `frac_responsive_trials × n` is an integer for **100 %** of ROIs, where `n` is the
   number of finite trials **at that ROI's preferred condition** (5–8), not the maximum
   across conditions;

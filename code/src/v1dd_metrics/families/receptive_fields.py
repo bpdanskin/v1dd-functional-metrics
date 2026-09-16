@@ -32,7 +32,7 @@ def _rf_pixel_to_degrees(mean_idx, centers: np.ndarray, scale_bug: bool) -> np.n
     """
     mean_idx = np.asarray(mean_idx, dtype=np.float64)
     if scale_bug:
-        pitch = (centers[-1] - centers[0]) / len(centers)      # should be len - 1
+        pitch = (centers[-1] - centers[0]) / len(centers)
         return (mean_idx + 0.5) * pitch + centers[0]
     pitch = (centers[-1] - centers[0]) / (len(centers) - 1)
     return mean_idx * pitch + centers[0]
@@ -47,9 +47,9 @@ def holm_sidak_reject(pvals: np.ndarray, alpha: float) -> np.ndarray:
     m = pvals.shape[0]
     order = np.argsort(pvals, axis=0)
     sorted_p = np.take_along_axis(pvals, order, axis=0)
-    thr = 1.0 - (1.0 - alpha) ** (1.0 / (m - np.arange(m)))     # per-rank threshold
+    thr = 1.0 - (1.0 - alpha) ** (1.0 / (m - np.arange(m)))
     passed = sorted_p <= thr[:, None]
-    rej_sorted = np.logical_and.accumulate(passed, axis=0)      # step-down prefix
+    rej_sorted = np.logical_and.accumulate(passed, axis=0)
     mask = np.zeros_like(pvals, dtype=bool)
     np.put_along_axis(mask, order, rej_sorted, axis=0)
     return mask
@@ -62,7 +62,7 @@ def _has_and_centres(out, suffix, mask, altitudes, azimuths, scale_bug):
     centroid of the significant pixels, mapped to degrees.
     """
     n_rows, n_cols = mask.shape[2], mask.shape[3]
-    counts = mask.sum(axis=(2, 3))                              # (n_rois, 2)
+    counts = mask.sum(axis=(2, 3))
     rows_ix = np.arange(n_rows)[None, None, :, None]
     cols_ix = np.arange(n_cols)[None, None, None, :]
     denom = np.where(counts > 0, counts, np.nan)
@@ -71,7 +71,6 @@ def _has_and_centres(out, suffix, mask, altitudes, azimuths, scale_bug):
         mean_col = (mask * cols_ix).sum(axis=(2, 3)) / denom
     alt = _rf_pixel_to_degrees(mean_row, altitudes, scale_bug)
     azi = _rf_pixel_to_degrees(mean_col, azimuths, scale_bug)
-    # area in deg^2: significant-pixel count x pixel area (pitch_alt * pitch_azi)
     pix_deg2 = abs((altitudes[1] - altitudes[0]) * (azimuths[1] - azimuths[0]))
     area = counts * pix_deg2
     has_on, has_off = counts[:, 0] > 0, counts[:, 1] > 0
@@ -143,7 +142,7 @@ def receptive_field_metrics(
         raise ValueError(
             f"frame index {frames.max()} exceeds the {len(images)}-frame template")
 
-    design = _design_matrix(images, frames, pixel_on, pixel_off)  # (2*n_pix, n_sweeps) bool
+    design = _design_matrix(images, frames, pixel_on, pixel_off)
     altitudes = np.asarray(lsn["altitudes"], dtype=np.float64)
     azimuths = np.asarray(lsn["azimuths"], dtype=np.float64)
     out = roi_frame(plane, mouse=mouse)
@@ -161,18 +160,16 @@ def _fraction_rf(out, plane, traces, design, starts, window, altitudes, azimuths
                  n_rows, n_cols, config, rng, *, spont):
     """Historical method: fraction of presentations above the spontaneous 95th pct."""
     trace_key = config.trace_type["locally_sparse_noise"]
-    # Events are non-negative and already denoised by L0; baseline subtraction would make
-    # them signed, defeating the advantage.
     baseline = None if trace_key == "events" else (-1.0, 0.0)
     sweeps = tr.sweep_responses(traces, plane.timestamps, starts, window, baseline)
     null = tr.spontaneous_null(
         traces, plane.timestamps, spont[0], spont[1], window, baseline,
         n_boot=config.other_n_boot, n_means=1, rng=rng,
         memory_budget_mb=config.memory_budget_mb)
-    threshold = np.quantile(null, 0.95, axis=1)                 # (n_rois,)
-    significant = sweeps > threshold[None, :]                   # (n_sweeps, n_rois)
+    threshold = np.quantile(null, 0.95, axis=1)
+    significant = sweeps > threshold[None, :]
 
-    n_pixel_trials = design.sum(axis=1)                         # (2 * n_pixels,)
+    n_pixel_trials = design.sum(axis=1)
     with np.errstate(invalid="ignore", divide="ignore"):
         frac = (design.astype(np.int64) @ significant).T / np.where(
             n_pixel_trials > 0, n_pixel_trials, np.nan)
@@ -182,8 +179,6 @@ def _fraction_rf(out, plane, traces, design, starts, window, altitudes, azimuths
 
     mask = (frac.reshape(plane.n_rois, 2, n_rows, n_cols) >= config.rf_frac_thresh)
     _has_and_centres(out, "", mask, altitudes, azimuths, config.rf_center_scale_bug)
-    # the fraction method has no sensitive variant; fill _a05 as absent so the 14-column
-    # schema is uniform across methods (bools False, centres NaN)
     _has_and_centres(out, "_a05", np.zeros_like(mask), altitudes, azimuths,
                      config.rf_center_scale_bug)
     arrays = {"method": "fraction", "rf_map": rf_map,
@@ -194,13 +189,13 @@ def _fraction_rf(out, plane, traces, design, starts, window, altitudes, azimuths
 def _greedy_rf(out, plane, traces, design, starts, window, altitudes, azimuths,
                n_rows, n_cols, config, rng):
     """Greedy pixelwise RF: STA + per-pixel bootstrap p-values + Holm-Šidák, two variants."""
-    A = design.astype(np.float32)                              # (2*n_pix, n_sweeps)
+    A = design.astype(np.float32)
     sweeps = tr.sweep_responses(traces, plane.timestamps, starts, window, None
-                                ).astype(np.float32)           # (n_sweeps, n_rois)
+                                ).astype(np.float32)
     n_sweeps = sweeps.shape[0]
-    sta = A @ sweeps                                           # (2*n_pix, n_rois)
+    sta = A @ sweeps
 
-    ge = np.zeros_like(sta)                                    # shuffles >= observed
+    ge = np.zeros_like(sta)
     for _ in range(config.rf_greedy_n_boot):
         idx = rng.integers(0, n_sweeps, n_sweeps)
         ge += (A @ sweeps[idx]) >= sta
@@ -222,7 +217,7 @@ def _greedy_rf(out, plane, traces, design, starts, window, altitudes, azimuths,
         "sta": sta_maps,
         "ge": np.clip(ge.T.reshape(plane.n_rois, 2, n_rows, n_cols), 0, 65535).astype(np.uint16),
         "strict_mask": strict,
-        "overlap_map": strict.astype(np.float32),   # window_containment weights this
+        "overlap_map": strict.astype(np.float32),
         "overlap_thresh": 0.5,
     }
     return out, arrays

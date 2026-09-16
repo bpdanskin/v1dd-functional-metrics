@@ -98,9 +98,9 @@ maps ("excluded", not "no RF").
 
 ## Columns
 
-The canonical seven are the **strict** variant; the `_a05` seven are the **sensitive**
+The canonical nine are the **strict** variant; the `_a05` nine are the **sensitive**
 variant (identical meaning, α=0.05). Under `rf_method="fraction"` the `_a05` columns are
-absent (bools False, centres NaN).
+absent (bools False, centres and areas NaN).
 
 | column | meaning |
 |---|---|
@@ -108,9 +108,10 @@ absent (bools False, centres NaN).
 | `has_rf_on_or_off` | either subfield present (strict) |
 | `azimuth_rf_on` / `altitude_rf_on` | ON subfield centre, degrees (strict) |
 | `azimuth_rf_off` / `altitude_rf_off` | OFF subfield centre, degrees (strict) |
-| `*_a05` | the same seven for the sensitive (α=0.05) variant |
+| `rf_on_area` / `rf_off_area` | subfield area, deg² (significant-pixel count × pixel area) |
+| `*_a05` | the same nine for the sensitive (α=0.05) variant |
 
-Centres are NaN where the corresponding `has_rf_*` is False.
+Centres and areas are NaN / absent where the corresponding `has_rf_*` is False.
 
 ## Sanity checks worth running on a fresh asset
 

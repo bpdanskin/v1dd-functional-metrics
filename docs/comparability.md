@@ -52,10 +52,11 @@ unchanged — it integrates over all directions, so it has no argmax selection t
 [explorations/crossval_osi_dsi.md](explorations/crossval_osi_dsi.md).
 
 This is the largest deliberate move in the asset after `ssi_tuning_fit`: on responsive cells
-windowed OSI drops ~0.64 → ~0.44 and DSI ~0.48 → ~0.28. The values below in "agrees with
-de Vries" are the **naive** figures the current (2026-09-11) asset still carries; the next
-capsule run will ship the lower cross-validated numbers, which no longer line up with a
-naive-computed published range — that is the point, not a regression.
+windowed OSI drops ~0.64 → ~0.44 and DSI ~0.48 → ~0.28. The current asset ships these
+cross-validated numbers. The values quoted below in "agrees with de Vries" are the **naive**
+figures, retained only because that comparison is against a naive-computed published range;
+the shipped cross-validated columns are ~0.2 lower and no longer line up with it — that is
+the point, not a regression.
 
 ### A zero denominator is now NaN everywhere
 
@@ -98,10 +99,10 @@ same event-extraction algorithm.
   against 0.0004 AU spontaneous; `pref_response` medians here are 0.0074 (natural images)
   and 0.0103 (natural movie), 0.0082 over responsive cells only. Same algorithm, same
   units, same order — the strongest cross-dataset agreement available.
-* **Selectivity indices sit in their published range** (these are the **naive** values, from
-  the current asset — see the cross-validation note above): full-field medians over responsive
-  cells are `dsi` 0.395, `osi` 0.635, `gosi` 0.293; windowed 0.470 / 0.659 / 0.310. Under
-  cross-validation `osi`/`dsi` drop by ~0.2 while `gosi` holds.
+* **Selectivity indices sit in their published range** (these are **naive** reference values,
+  not what the asset ships — see the cross-validation note above): full-field medians over
+  responsive cells are `dsi` 0.395, `osi` 0.635, `gosi` 0.293; windowed 0.470 / 0.659 / 0.310.
+  The shipped cross-validated `osi`/`dsi` are ~0.2 lower; `gosi` (shipped naive) holds.
 * **Lifetime sparseness agrees once computed their way** — see above.
 
 ### One name that means two different things
@@ -143,9 +144,10 @@ their 25 % figure without that adjustment makes V1DD look less responsive than i
 * **Surround suppression does not track receptive-field position.** `ssi` against
   RF-to-aperture distance gives r = −0.03, flat from 0° to beyond 37°. The white paper
   listed surround suppression under ongoing analysis and found the same targeting problem
-  ("over half" of cells outside the window). `rf_inside_window_on` is therefore a
-  *conservative* filter: cells passing it are well targeted, but cells failing it should
-  **not** be discarded, because the distance test is not sensitive enough to justify it.
+  ("over half" of cells outside the window). `dgw_rf_distance_on` is therefore a
+  *conservative* filter: cells close to the aperture are well targeted, but cells far from it
+  should **not** be discarded, because the distance test is not sensitive enough to justify it
+  (`dgw_rf_overlap_on` is the better measure).
 * **`run_mod_*` uses `(R_run − R_stat) / (R_run + R_stat)`**, not the paper's
   `C·(Rmax − Rmin)/Rmax`. The two are monotonically related, and this form matches every
   `ssi_*` column rather than putting a second convention in the same asset.

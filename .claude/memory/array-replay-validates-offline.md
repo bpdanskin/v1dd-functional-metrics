@@ -10,13 +10,19 @@ be checked by replaying the arrays and comparing to the shipped columns — no c
 mounted dataset. This is the main refactor gate; see [[repo-identity-and-the-frozen-fork]]
 for the asset path.
 
+**`replay_reference.py` targets a `REFERENCE_CONFIG` asset** — fraction RF (`rf_maps`) and
+naive OSI/DSI. The **default** config now ships greedy RF (`rf_sta`/`strict_mask`, no
+`rf_maps`) and cross-validated OSI/DSI (deterministic only with the recorded
+`dg_crossval_seed`), so replaying a default-config asset needs a tool update that has not
+been done. The `rf_maps` rows below describe the fraction path.
+
 What is replayable:
 
 | array | shape | validates |
 |---|---|---|
 | `dg{w,f}_trials` | (39407, 12, 2, 8) | all drifting-gratings metrics, surround suppression |
 | `dg{w,f}_running` | (150, 12, 2, 8) | running modulation, trial-level running correlation |
-| `rf_maps` | (39407, 2, 8, 14), pre-threshold | receptive fields |
+| `rf_maps` | (39407, 2, 8, 14), pre-threshold | receptive fields (fraction/reference only) |
 | `ni_mean` / `ni12_mean` | (39407, 118) / (39407, 12) | natural-image condition means |
 
 ## Compare against a noise floor, not a fixed tolerance
@@ -48,8 +54,8 @@ exactly identical.
 
 **Three relationships hold exactly and make good assertions:**
 
-* thresholding `rf_maps` at `rf_frac_thresh` (0.25) reproduces `has_rf_on` / `has_rf_off`
-  for **100 %** of ROIs;
+* under `rf_method="fraction"`, thresholding `rf_maps` at `rf_frac_thresh` (0.25) reproduces
+  `has_rf_on` / `has_rf_off` for **100 %** of ROIs (default greedy uses `strict_mask` instead);
 * `frac_responsive_trials x n` is an integer for **100 %** of ROIs (residual exactly 0),
   where n is the finite trials **at that ROI's preferred condition** -- not the maximum
   across conditions, which is a different and wrong denominator;

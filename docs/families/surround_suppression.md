@@ -136,6 +136,22 @@ are NaN.
 | `dgw_rf_distance_off` | degrees from the OFF-subfield centre to the aperture centre |
 | `dgw_rf_overlap_on` | fraction of ON-subfield mass inside the aperture |
 | `dgw_rf_overlap_off` | fraction of OFF-subfield mass inside the aperture |
+| `pop_rf_azimuth` | plane population-RF centre, azimuth (degrees) |
+| `pop_rf_altitude` | plane population-RF centre, altitude (degrees) |
+| `pop_rf_dis_azimuth` | \|azimuth\| distance from the population RF to the aperture centre |
+| `pop_rf_dis_altitude` | \|altitude\| distance from the population RF to the aperture centre |
+
+## Population receptive field
+
+The four `pop_rf_*` columns describe the whole imaging plane, not the individual ROI, and
+are broadcast to every ROI in the plane. `pop_rf_azimuth` / `pop_rf_altitude` are the
+area-weighted mean of each cell's dominant RF subfield centre (the larger of its ON/OFF
+areas, or whichever is present), so the plane's population RF is a single point in visual
+space. It is aperture-independent and is set even for sessions that record no aperture
+centre. `pop_rf_dis_azimuth` / `pop_rf_dis_altitude` are the per-axis absolute distances
+from that point to the windowed-grating aperture centre, and are NaN when no aperture is
+recorded. They give a plane-level check on whether the aperture was actually placed over
+the population RF the windowed stimulus was meant to target.
 
 ## Sanity checks worth running on a fresh asset
 

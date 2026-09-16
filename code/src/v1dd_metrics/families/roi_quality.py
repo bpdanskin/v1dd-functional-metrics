@@ -54,10 +54,10 @@ def spectral_snr(traces, fs: float, signal_band=(0.1, 1.5), noise_band=(2.0, 2.1
     x = np.asarray(traces, dtype=np.float64)
     if x.ndim != 2:
         raise ValueError(f"expected (n_frames, n_rois), got {x.shape}")
-    x = x.T                                            # -> (n_rois, n_frames)
+    x = x.T
     n_time = x.shape[1]
     if demean:
-        x = x - x.mean(axis=1, keepdims=True)          # kill the DC bin
+        x = x - x.mean(axis=1, keepdims=True)
 
     freqs = np.fft.rfftfreq(n_time, d=1.0 / float(fs))
     if noise_band[1] > freqs[-1]:
@@ -85,8 +85,8 @@ def _run_modulation(resp, speeds, thr, min_trials):
     if resp is None or speeds is None:
         return None
     run = speeds > thr
-    stat = speeds < thr                      # strict both sides: exactly thr is neither,
-    if run.sum() < min_trials or stat.sum() < min_trials:   # matching the ssi convention
+    stat = speeds < thr
+    if run.sum() < min_trials or stat.sum() < min_trials:
         return None
     r = _nanmean(np.where(run[None], resp, np.nan).reshape(resp.shape[0], -1), axis=1)
     s = _nanmean(np.where(stat[None], resp, np.nan).reshape(resp.shape[0], -1), axis=1)
@@ -157,7 +157,7 @@ def roi_summary_metrics(
             stat_f = per_frame < thr
             traces = plane.traces.get(config.trace_type["drifting_gratings_full"])
             if traces is not None:
-                block = np.asarray(traces)[frames]           # (n_spont_frames, n_rois)
+                block = np.asarray(traces)[frames]
                 out["spont_rate"] = _nanmean(block, axis=0)
                 if run_f.sum() >= n_min:
                     out["spont_rate_run"] = _nanmean(block[run_f], axis=0)

@@ -54,7 +54,7 @@ class Accumulator:
 
     def __init__(self) -> None:
         self.parts: dict[str, list] = {f: [] for f in FAMILIES}
-        self.rf_arrays: list[dict] = []          # per-plane RF array payloads (method-tagged)
+        self.rf_arrays: list[dict] = []
         self.lsn_grid: Optional[dict] = None
         self.tuning = {k: {p: [] for p in _TUNING_PARTS} for k in ("dgw", "dgf")}
         self.tuning_axes: Optional[tuple] = None
@@ -132,8 +132,6 @@ def process_plane(plane, ctx: dict, acc: Accumulator, config: MetricConfig,
     def rng() -> np.random.Generator:
         return np.random.default_rng(seed)
 
-    # Receptive fields first: surround suppression reports how much of each field the
-    # grating aperture covered, so the maps must exist before it runs.
     with acc.stage("receptive_fields"):
         rf_df, rf_arr = rfm.receptive_field_metrics(
             plane, ctx["lsn_trials"], ctx["spont"], ctx["lsn"], config=config, rng=rng())
@@ -147,8 +145,6 @@ def process_plane(plane, ctx: dict, acc: Accumulator, config: MetricConfig,
             config=config, rng=rng())
     acc.parts["drifting_gratings_windowed"].append(dgw.metrics)
 
-    # Full field fits only the spatial frequency surround suppression reads, which is
-    # windowed's preferred one per ROI.
     trials, blank = ctx["dg_trials"]["full"]
     with acc.stage("drifting_gratings_full"):
         dgf = dgm.drifting_gratings_metrics(
@@ -164,8 +160,6 @@ def process_plane(plane, ctx: dict, acc: Accumulator, config: MetricConfig,
             dgw, dgf, plane, config=config, containment=containment,
             center=ctx["center"], center_inferred=ctx["center_inferred"]))
 
-    # Locomotion spans both grating types and the spontaneous block, so it is its own
-    # family rather than columns bolted onto one of them.
     with acc.stage("roi_summary"):
         acc.parts["roi_summary"].append(rqm.roi_summary_metrics(
             plane, dgw, dgf, ctx["spont"], ctx["running"], config=config))
@@ -176,8 +170,6 @@ def process_plane(plane, ctx: dict, acc: Accumulator, config: MetricConfig,
         part["blank"].append(res.blank_responses.astype(np.float32))
         part["params"].append(res.tuning_params.astype(np.float32))
         part["running"].append(res.trial_running_speeds.astype(np.float32))
-        # Running speeds have no ROI axis, so they key on the plane. Taken as roi_key's
-        # prefix rather than rebuilt, so the two cannot drift.
         part["plane_key"].append(res.metrics["roi_key"].iloc[0].rsplit("_", 1)[0]
                                  if len(res.metrics) else "")
     if acc.tuning_axes is None:
@@ -197,9 +189,6 @@ def process_plane(plane, ctx: dict, acc: Accumulator, config: MetricConfig,
         acc.parts["natural_movie"].append(nmm.natural_movie_metrics(
             plane, ctx["nm_trials"], ctx["spont"], config=config, rng=rng()))
 
-    # Anatomical position. The masks are read in process_session rather than by
-    # load_plane, which drops them: eight of nine output blocks do not want a dense
-    # per-ROI footprint.
     with acc.stage("roi_position"):
         acc.parts["roi_position"].append(rpm.roi_position_metrics(
             plane, ctx["masks"], config=config, mouse=None,
@@ -268,12 +257,9 @@ def process_session(row: pd.Series, centers, acc: Accumulator, config: MetricCon
             try:
                 with acc.stage("load_masks"):
                     ctx["masks"] = vn.load_roi_masks(nwbfile, plane_key)
-            except KeyError as exc:          # no mask column -> position columns NaN
+            except KeyError as exc:
                 print(f"    !! {plane_key}: {exc}", flush=True)
                 ctx["masks"] = None
-            # Which read path a plane took is otherwise invisible: the bulk read falls
-            # back to per-ROI silently, and a run that looks slow cannot be told apart
-            # from one that fell back. See docs/pipeline.md.
             acc.mask_log.append({
                 "session": row["name"], "plane": str(plane_key),
                 "source": ctx["masks"].source if ctx["masks"] is not None else None,
@@ -332,7 +318,6 @@ def build_wide(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
         prefix = PREFIX[fam]
         part = pub[KEYS + metric_cols].rename(
             columns={c: prefix + c for c in metric_cols})
-        # one_to_one fails loudly rather than fanning the table out on a duplicate key.
         wide = wide.merge(part, on=KEYS, how="left", validate="one_to_one")
         manifest[fam] = {"prefix": prefix, "columns": [prefix + c for c in metric_cols]}
 
@@ -538,9 +523,6 @@ def build_provenance(*, asset_name: str, stamp: str, mouse_label: str, config: M
         "input_asset": str(input_asset),
         "n_sessions": int(len(sessions)), "n_planes": int(len(planes)),
         "n_rois": int(len(wide)), "wall_seconds": round(wall_seconds, 1),
-        # Where the time went, and which mask read path each plane took. Without these
-        # a slow run cannot be diagnosed after the fact, and a silent fallback to the
-        # per-ROI mask read looks identical to the fast path.
         "stage_seconds": {k: round(float(v), 1)
                           for k, v in sorted((timing or {}).items(),
                                              key=lambda kv: -kv[1])},
@@ -557,9 +539,7 @@ def build_provenance(*, asset_name: str, stamp: str, mouse_label: str, config: M
         "config": defaults,
         "window_centers": {**window_centers,
                            "read_failures": center_read_failures},
-        # Two reconstructions of the column layout, neither recorded in the file.
         "column_layout": layout or {},
-        # The delta rather than prose, so the claim stays checkable.
         "differs_from_reference_config": {
             k: {"used": defaults[k], "historical": reference[k]}
             for k in defaults if defaults[k] != reference[k]},
@@ -641,8 +621,6 @@ def run(input_asset: Path, results_dir: Path, asset_prefix: str = "V1DD_function
     print(f"wrote {wide_path.name}: {len(wide)} ROIs x {len(wide.columns)} columns",
           flush=True)
 
-    # Array writers are guarded individually: they run before provenance, and an
-    # unguarded raise in one of them costs the run its record of everything else.
     arrays: list[str] = []
     write_errors: list[dict] = []
     _guarded("receptive_field_maps.npz", arrays, write_errors)(

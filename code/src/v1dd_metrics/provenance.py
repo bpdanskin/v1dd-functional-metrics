@@ -64,11 +64,10 @@ def git_sha(repo: str | None = None) -> str | None:
 def jsonable(obj: Any) -> Any:
     """Recursively convert numpy scalars and containers to plain JSON types.
 
-    Casting up front means an artifact never fails to write after an expensive run.
+    Casting up front means an artifact never fails to write after an expensive run. The
+    float branch is first (``np.float64`` subclasses ``float``) and maps non-finite values
+    to None, so no bare ``NaN`` literal reaches ``json.dump`` for strict parsers to reject.
     """
-    # float first, and ahead of any passthrough: np.float64 subclasses float, so a
-    # passthrough branch would let NaN reach json.dump, which writes a bare NaN literal
-    # that strict parsers reject.
     if isinstance(obj, (float, np.floating)):
         v = float(obj)
         return v if np.isfinite(v) else None

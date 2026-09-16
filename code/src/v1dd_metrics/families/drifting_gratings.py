@@ -72,7 +72,6 @@ def infer_window_centers(
                 donors.append((k, az, el))
             else:
                 missing.append(k)
-                # One of the two present is neither a donor nor a clean absence; say so.
                 if np.isfinite(az) != np.isfinite(el):
                     partial.append({"column": col, "volume": str(k[1]),
                                     "azimuth": az if np.isfinite(az) else None,
@@ -233,13 +232,13 @@ def crossval_osi_dsi(
     for _ in range(n_iter):
         perm = rng.permutation(n_trials)
         a, b = perm[:n_trials // 2], perm[n_trials // 2:]
-        mA = _nanmean(ta[:, :, :, a], axis=3)                 # (n_rois, n_dir, n_sf)
+        mA = _nanmean(ta[:, :, :, a], axis=3)
         mB = _nanmean(ta[:, :, :, b], axis=3)
         valid = np.isfinite(mA).any(axis=(1, 2))
         kA = np.where(np.isfinite(mA), mA, -np.inf).reshape(n_rois, -1).argmax(axis=1)
         pdir, psf = np.divmod(kA, n_sf)
 
-        tunB = mB[roi_ix, :, psf]                             # (n_rois, n_dir), held out
+        tunB = mB[roi_ix, :, psf]
         prefB = tunB[roi_ix, pdir]
         nullB = tunB[roi_ix, (pdir + 6) % n_dir]
         orthB = 0.5 * (tunB[roi_ix, (pdir + 3) % n_dir] + tunB[roi_ix, (pdir - 3) % n_dir])
@@ -275,7 +274,7 @@ def dg_metrics_from_trials(
 
     n_rois, n_dir, n_sf, n_trials = ta.shape
     roi_ix = np.arange(n_rois)
-    mean_tr = _nanmean(ta, axis=3)                       # (n_rois, n_dir, n_sf)
+    mean_tr = _nanmean(ta, axis=3)
 
     k_fill = np.nan_to_num(mean_tr, nan=-1.0).reshape(n_rois, -1).argmax(axis=1)
     k_skip = np.where(np.isfinite(mean_tr), mean_tr, -np.inf).reshape(n_rois, -1).argmax(axis=1)
@@ -296,7 +295,7 @@ def dg_metrics_from_trials(
         no_response = ~np.isfinite(mean_tr).any(axis=(1, 2))
         pref_cond_index[no_response] = -1
 
-    tuning = mean_tr[roi_ix, :, pref_sf_idx]             # (n_rois, n_dir) at preferred SF
+    tuning = mean_tr[roi_ix, :, pref_sf_idx]
     pref = tuning[roi_ix, pref_dir_idx]
     null_r = tuning[roi_ix, (pref_dir_idx + 6) % 12]
     orth_r = 0.5 * (tuning[roi_ix, (pref_dir_idx + 3) % 12]
@@ -306,7 +305,6 @@ def dg_metrics_from_trials(
     osi = _ratio(pref - orth_r, pref + orth_r, zero_to_nan=zn)
     dsi = _ratio(pref - null_r, pref + null_r, zero_to_nan=zn)
 
-    # Cross-validated OSI/DSI de-bias the same-trial argmax; gosi/preferred_dir stay naive.
     if config.dg_crossval:
         osi, dsi = crossval_osi_dsi(ta, dir_list, n_iter=config.dg_crossval_iters,
                                     seed=config.dg_crossval_seed, zero_to_nan=zn)
@@ -405,7 +403,6 @@ def drifting_gratings_metrics(
 
     grat = trials.loc[~is_blank]
 
-    # per-session grating-aperture centre (NaN for full-field, which uses (0, 0) placeholders)
     center: Tuple[float, float] = window_center(grat)
 
     dir_list = np.sort(grat["direction"].dropna().unique())
@@ -443,7 +440,6 @@ def drifting_gratings_metrics(
     frac = tr.frac_trials_above_null(pref_trials, null_single, p_thresh=config.sig_p_thresh)
     is_responsive = (plane.is_valid & (frac >= config.dg_frac_thresh)).astype(float)
 
-    # per-trial running speed, shape (n_dir, n_sf, n_trials); no ROI axis
     trs = np.full((n_dir, n_sf, n_trials), np.nan)
     if running is not None:
         speed, rts = running
@@ -453,7 +449,7 @@ def drifting_gratings_metrics(
         cs, counts = tr.prefix_sums(np.asarray(speed, dtype=np.float64)[:, None])
         a = np.searchsorted(rts, gstarts - pad, side="left")
         b = np.searchsorted(rts, stops + pad, side="right")
-        per_sweep = tr.window_means(cs, counts, a, b)              # (n_sweeps, 1)
+        per_sweep = tr.window_means(cs, counts, a, b)
         trs = tr.trial_array(per_sweep, code, n_trials=n_trials,
                              n_conditions=n_dir * n_sf).reshape(n_dir, n_sf, n_trials)
 

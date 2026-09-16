@@ -66,7 +66,7 @@ def _lifetime_sparseness_chunked(ta: np.ndarray, block: int = 256,
     for s in range(0, n_cond, block):
         x = ta[s : s + block]
         if over == "conditions":
-            x = _nanmean(x, axis=1)                    # (block, n_rois)
+            x = _nanmean(x, axis=1)
         finite = np.isfinite(x)
         x0 = np.where(finite, x, 0.0)
         axes = (0,) if over == "conditions" else (0, 1)

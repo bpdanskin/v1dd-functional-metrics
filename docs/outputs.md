@@ -6,7 +6,7 @@ One run writes a single asset directory, `/results/<mouse>_V1DD_functional_metri
 |---|---|
 | `stimulus_metrics.parquet` | the per-ROI table — every metric, one row per ROI |
 | `tuning_curves.npz` | per-trial grating responses, blank sweeps, von Mises fits, running speed |
-| `receptive_field_maps.npz` | pre-threshold ON/OFF subfield maps |
+| `receptive_field_maps.npz` | greedy STA + bootstrap shuffle-counts + strict detection mask (or pre-threshold fraction maps under `rf_method="fraction"`) |
 | `condition_means.npz` | neuron-by-image trial-mean responses for the two image sets |
 | `provenance.json` | seed, config, sessions, environment, and what differs from the reference config |
 | `subject.json`, `data_description.json`, `processing.json` | AIND metadata, written last |
@@ -17,8 +17,8 @@ because they are a record of the run rather than data.
 ## Why there are no per-family CSVs
 
 Earlier assets shipped eight per-family CSVs *and* the wide table. The CSVs repeated the
-nine-column identity block eight times and carried nothing the wide table lacks — 56 MB of
-CSV encoding the same 72 metric columns the table holds in 15 MB. They are gone. Anything
+nine-column identity block eight times and carried nothing the wide table lacks — tens of MB
+of CSV encoding the same metric columns the table holds in ~15 MB. They are gone. Anything
 that read one reads a column subset of `stimulus_metrics.parquet` instead.
 
 ## The per-ROI table
@@ -31,11 +31,11 @@ already name the stimulus keep an empty prefix.
 | `roi_summary` | — | 12 | `snr`, `signal_power`, `noise_power`, `run_frac`, `spont_run_frac`, `spont_rate`, `spont_rate_run`, `spont_rate_stat`, `run_mod_dgf`, `run_mod_dgw`, `run_mod_spont`, `run_corr_dff` |
 | `drifting_gratings_full` | `dgf_` | 9 | `dsi`, `frac_responsive_trials`, `gosi`, `is_responsive`, `lifetime_sparseness`, `osi`, `preferred_dir`, `preferred_sf`, `pref_dir_mean` |
 | `drifting_gratings_windowed` | `dgw_` | 9 | the same nine |
-| `surround_suppression` | — | 15 | `ssi`, `ssi_avg`, `ssi_avg_at_pref_sf`, `ssi_running`, `ssi_running_avg_at_pref_sf`, `ssi_stationary`, `ssi_stationary_avg_at_pref_sf`, `ssi_tuning_fit`, `dgw_center_azimuth`, `dgw_center_elevation`, `dgw_center_inferred`, `dgw_rf_distance_on`, `dgw_rf_distance_off`, `dgw_rf_overlap_on`, `dgw_rf_overlap_off` |
+| `surround_suppression` | — | 19 | `ssi`, `ssi_avg`, `ssi_avg_at_pref_sf`, `ssi_running`, `ssi_running_avg_at_pref_sf`, `ssi_stationary`, `ssi_stationary_avg_at_pref_sf`, `ssi_tuning_fit`, `dgw_center_azimuth`, `dgw_center_elevation`, `dgw_center_inferred`, `dgw_rf_distance_on`, `dgw_rf_distance_off`, `dgw_rf_overlap_on`, `dgw_rf_overlap_off`, `pop_rf_azimuth`, `pop_rf_altitude`, `pop_rf_dis_azimuth`, `pop_rf_dis_altitude` |
 | `natural_images` | `ni_` | 8 | `frac_responsive_trials`, `lifetime_sparseness`, `pref_img`, `pref_response`, `z_score`, `reliability`, `reliability_events`, `n_trials_at_pref` |
-| `natural_images_12` | `ni12_` | 9 | the same nine |
-| `natural_movie` | `nm_` | 9 | the same nine, with `pref_img` a frame index |
-| `rf_metrics` | — | 14 | strict (default): `has_rf_on`, `has_rf_off`, `has_rf_on_or_off`, `azimuth_rf_on`, `altitude_rf_on`, `azimuth_rf_off`, `altitude_rf_off`; and the same seven `_a05` for the sensitive variant — see [receptive_fields.md](families/receptive_fields.md) |
+| `natural_images_12` | `ni12_` | 8 | the same eight |
+| `natural_movie` | `nm_` | 8 | the same eight, with `pref_img` a frame index |
+| `rf_metrics` | — | 18 | strict (default): `has_rf_on`, `has_rf_off`, `has_rf_on_or_off`, `azimuth_rf_on`, `altitude_rf_on`, `azimuth_rf_off`, `altitude_rf_off`, `rf_on_area`, `rf_off_area`; and the same nine `_a05` for the sensitive variant — see [receptive_fields.md](families/receptive_fields.md) |
 | `roi_position` | — | 10 | `roi_x_px`, `roi_y_px`, `roi_area_px`, `roi_radius_px`, `roi_x_um`, `roi_y_um`, and the two anatomical frames `roi_{x,y}_um_published` / `roi_{x,y}_um_retinotopic` — see [roi_position.md](families/roi_position.md) |
 
 Identity: `roi_unique_id`, `roi_key`, `mouse`, `column`, `volume`, `plane`, `roi`,
@@ -45,6 +45,12 @@ Identity: `roi_unique_id`, `roi_key`, `mouse`, `column`, `volume`, `plane`, `roi
 column and collides — about 13,500 distinct strings for 39,407 rows. `volume` is a string
 throughout, because volumes run 1–9 and a–f; a CSV round-trip would re-infer it as an
 integer for an all-numeric column.
+
+**`pika_roi_confidence` is emitted, not enforced.** `is_valid` is this column `> 0.5`. The
+pipeline suppresses `preferred_dir`, every `ssi*` column and every receptive-field column
+for low-confidence ROIs, but `osi`, `dsi`, `lifetime_sparseness` and the natural-scene
+metrics are still populated for them — so a low-confidence ROI enters a population average
+unnoticed unless you filter on `pika_roi_confidence > 0.5` yourself.
 
 ## The array archives
 
